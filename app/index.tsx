@@ -50,14 +50,17 @@ export default function HomeScreen() {
     // If logged in, go straight into the app.
     // IMPORTANT: route to a REAL tab route (NOT /home).
     if (!loading && user && !redirectedRef.current) {
+      console.log('[INDEX] User is logged in, redirecting to app...');
       redirectedRef.current = true;
       router.replace('/(app)/sets');
     }
 
     // If logged out again, allow future redirects after next login.
     if (!loading && !user) {
+      console.log('[INDEX] User is logged out, showing home screen');
       redirectedRef.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, user]);
 
   const isMobileLike = screenWidth < 700;

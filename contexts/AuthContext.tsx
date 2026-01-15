@@ -9,6 +9,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   displayName: string;
+  isLoggingOut: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   isAdmin: false,
   displayName: 'Guest',
+  isLoggingOut: false,
   signOut: async () => {},
 });
 
@@ -26,15 +28,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // ✅ Prevent redundant state writes (reduces rerender churn on web)
   const lastUserIdRef = useRef<string | null>(null);
   const lastSessionAccessTokenRef = useRef<string | null>(null);
+  const isLoggingOutRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
 
-    const applySession = (nextSession: Session | null) => {
+    const applySession = (nextSession: Session | null, event?: string) => {
       if (!mounted) return;
 
       const nextUser = nextSession?.user ?? null;
@@ -45,6 +49,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userChanged = nextUserId !== lastUserIdRef.current;
       const sessionChanged = nextAccessToken !== lastSessionAccessTokenRef.current;
 
+      if (userChanged || sessionChanged) {
+        console.log(`[AUTH] ${event || 'SESSION_CHANGE'}:`, {
+          userId: nextUserId,
+          wasLoggedIn: !!lastUserIdRef.current,
+          isLoggedIn: !!nextUserId,
+        });
+      }
+
       if (sessionChanged) {
         lastSessionAccessTokenRef.current = nextAccessToken;
         setSession(nextSession);
@@ -52,6 +64,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (userChanged) {
         lastUserIdRef.current = nextUserId;
         setUser(nextUser);
+
+        // Clear logout state when user changes
+        if (!nextUserId && isLoggingOutRef.current) {
+          console.log('[AUTH] Logout complete, clearing logout state');
+          isLoggingOutRef.current = false;
+          setIsLoggingOut(false);
+        }
       }
 
       // Loading should end exactly once we know the auth state
@@ -60,11 +79,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       const { data } = await supabase.auth.getSession();
-      applySession(data.session ?? null);
+      applySession(data.session ?? null, 'INITIAL_SESSION');
     })();
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      applySession(nextSession ?? null);
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      console.log('[AUTH] Auth state change event:', event);
+      applySession(nextSession ?? null, event);
     });
 
     return () => {
@@ -104,9 +124,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   async function signOut() {
-    // ✅ Do not manually set user/session here.
-    // Let the Supabase auth listener update state exactly once.
-    await supabase.auth.signOut();
+    // Prevent multiple simultaneous logout calls
+    if (isLoggingOutRef.current) {
+      console.log('[AUTH] Logout already in progress, ignoring duplicate call');
+      return;
+    }
+
+    console.log('[AUTH] Starting logout...');
+    isLoggingOutRef.current = true;
+    setIsLoggingOut(true);
+
+    try {
+      // Let the Supabase auth listener update state exactly once
+      await supabase.auth.signOut();
+      console.log('[AUTH] signOut() completed');
+    } catch (error) {
+      console.error('[AUTH] Logout error:', error);
+      // Reset logout state on error
+      isLoggingOutRef.current = false;
+      setIsLoggingOut(false);
+    }
   }
 
   const displayName = user?.email ?? 'Guest';
@@ -118,9 +155,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       isAdmin,
       displayName,
+      isLoggingOut,
       signOut,
     }),
-    [user, session, loading, isAdmin, displayName]
+    [user, session, loading, isAdmin, displayName, isLoggingOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

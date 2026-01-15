@@ -19,7 +19,7 @@ const POKEBALL_ICON = require('@/assets/images/pokeball-icon.jpg');
 
 function AppHeader() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, signOut, isLoggingOut } = useAuth();
 
   const handleLogout = async () => {
     // ✅ ONLY sign out here.
@@ -36,16 +36,18 @@ function AppHeader() {
           style={[styles.headerButton, styles.profileButton]}
           onPress={() => router.push('/(app)/profile')}
           activeOpacity={0.85}
+          disabled={isLoggingOut}
         >
           <Text style={styles.headerButtonText}>Profile</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.headerButton, styles.logoutButton]}
+          style={[styles.headerButton, styles.logoutButton, isLoggingOut && styles.buttonDisabled]}
           onPress={handleLogout}
           activeOpacity={0.85}
+          disabled={isLoggingOut}
         >
-          <Text style={styles.headerButtonText}>Log out</Text>
+          <Text style={styles.headerButtonText}>{isLoggingOut ? 'Logging out...' : 'Log out'}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -59,16 +61,29 @@ export default function AppLayout() {
 
   // ✅ Avoid repeated replace() calls
   const kickedOutRef = useRef(false);
+  const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const currentUserId = user?.id || null;
+
+    // Detect logout transition: was logged in -> now logged out
+    const justLoggedOut = lastUserIdRef.current && !currentUserId;
+
     if (!loading && !user && !kickedOutRef.current) {
+      console.log('[ROUTING] User logged out, redirecting to home');
       kickedOutRef.current = true;
       router.replace('/');
     }
+
     if (!loading && user) {
+      console.log('[ROUTING] User logged in, allowing app access');
       kickedOutRef.current = false;
     }
-  }, [loading, user, router]);
+
+    lastUserIdRef.current = currentUserId;
+    // Note: router is stable in Expo Router, so it's safe to exclude from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user]);
 
   if (loading) {
     return (
@@ -194,6 +209,7 @@ const styles = StyleSheet.create({
   },
   profileButton: { backgroundColor: '#1D4ED8' },
   logoutButton: { backgroundColor: '#DC0A2D' },
+  buttonDisabled: { opacity: 0.5 },
 
   headerButtonText: { color: '#fff', fontWeight: '900', fontSize: 14 },
 
