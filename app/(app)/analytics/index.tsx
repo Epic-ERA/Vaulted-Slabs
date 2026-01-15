@@ -12,11 +12,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getAllSetCompletions, getGradingBreakdown } from '@/services/analytics';
 import { getCollectionItems } from '@/services/collection';
 import type { SetCompletion, GradingBreakdown } from '@/services/analytics';
+import { router } from 'expo-router';
+import { TouchableOpacity } from 'react-native';
 
 const BACKGROUND_IMAGE = require('@/assets/images/vaultedslabs-background-image.jpg');
 
 export default function AnalyticsScreen() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [completions, setCompletions] = useState<SetCompletion[]>([]);
   const [gradingData, setGradingData] = useState<GradingBreakdown[]>([]);
   const [totalValue, setTotalValue] = useState(0);
@@ -70,6 +72,16 @@ export default function AnalyticsScreen() {
         <View style={styles.bgOverlay} />
 
         <View style={styles.container}>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.adminButton}
+              onPress={() => router.push('/(app)/admin')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.header}>
             <Text style={styles.title}>Analytics</Text>
             <Text style={styles.subtitle}>Collection insights and value</Text>
@@ -143,8 +155,26 @@ const styles = StyleSheet.create({
 
   container: { flex: 1, backgroundColor: 'transparent' },
 
+  adminButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(29, 78, 216, 0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginTop: 78,
+    marginBottom: 12,
+  },
+  adminButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
   // ✅ prevents title being covered by the top header (email/logout)
-  header: { padding: 20, paddingTop: 78, paddingBottom: 14, alignItems: 'center' },
+  header: { padding: 20, paddingTop: 14, paddingBottom: 14, alignItems: 'center' },
   title: { fontSize: 26, fontWeight: '800', color: '#fff', textAlign: 'center' },
   subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.80)', textAlign: 'center', marginTop: 6 },
 

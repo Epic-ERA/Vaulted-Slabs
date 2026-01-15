@@ -190,9 +190,11 @@ export default function AdminScreen() {
             {activeTab === 'sync' && (
               <>
                 <View style={styles.card}>
-                  <DatabaseIcon size={32} color="#DC0A2D" style={styles.cardIcon} />
-                  <Text style={styles.cardTitle}>Pokémon TCG Sync</Text>
-                  <Text style={styles.cardDescription}>
+                  <View style={styles.cardIconCentered}>
+                    <DatabaseIcon size={32} color="#DC0A2D" />
+                  </View>
+                  <Text style={[styles.cardTitle, styles.centerText]}>Pokémon TCG Sync</Text>
+                  <Text style={[styles.cardDescription, styles.centerText]}>
                     You must run Sync Starter Sets once to populate the database.
                   </Text>
 
@@ -232,11 +234,11 @@ export default function AdminScreen() {
                 </View>
 
                 <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Recent Sync Logs</Text>
+                  <Text style={[styles.cardTitle, styles.centerText]}>Recent Sync Logs</Text>
                   {loading ? (
                     <ActivityIndicator color="#DC0A2D" style={styles.logsLoader} />
                   ) : logs.length === 0 ? (
-                    <Text style={styles.emptyText}>No sync logs yet</Text>
+                    <Text style={[styles.emptyText, styles.centerText]}>No sync logs yet</Text>
                   ) : (
                     logs.map((log) => (
                       <View key={log.id} style={styles.logItem}>
@@ -432,6 +434,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   cardIcon: { marginBottom: 12 },
+  cardIconCentered: { alignItems: 'center', marginBottom: 12 },
+  centerText: { textAlign: 'center' },
   cardTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: 8 },
   cardDescription: { fontSize: 14, color: 'rgba(255,255,255,0.85)', marginBottom: 16 },
 

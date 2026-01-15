@@ -33,7 +33,15 @@ Deno.serve(async (req: Request) => {
       throw new Error('Unauthorized');
     }
 
-    const isAdmin = user.app_metadata?.role === 'admin';
+    // Check if user is admin by querying the user_roles table
+    const { data: roleData, error: roleError } = await supabaseClient
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    const isAdmin = !roleError && roleData !== null;
     if (!isAdmin) {
       throw new Error('Forbidden: Admin access required');
     }
@@ -47,12 +55,19 @@ Deno.serve(async (req: Request) => {
         throw listError;
       }
 
+      // Get all user roles from database
+      const { data: userRoles } = await supabaseClient
+        .from('user_roles')
+        .select('user_id, role');
+
+      const roleMap = new Map(userRoles?.map(r => [r.user_id, r.role]) || []);
+
       const usersData = users.map((u) => ({
         id: u.id,
         email: u.email || '',
         created_at: u.created_at,
         last_sign_in_at: u.last_sign_in_at,
-        app_metadata: u.app_metadata,
+        app_metadata: { role: roleMap.get(u.id) || 'user' },
       }));
 
       return new Response(
@@ -77,17 +92,16 @@ Deno.serve(async (req: Request) => {
         throw new Error('Invalid role. Must be "admin" or "user"');
       }
 
-      const { error: updateError } = await supabaseClient.auth.admin.updateUserById(
-        userId,
-        {
-          app_metadata: {
-            role: role,
-          },
-        }
-      );
+      // Update or insert role in user_roles table
+      const { error: upsertError } = await supabaseClient
+        .from('user_roles')
+        .upsert(
+          { user_id: userId, role: role },
+          { onConflict: 'user_id' }
+        );
 
-      if (updateError) {
-        throw updateError;
+      if (upsertError) {
+        throw upsertError;
       }
 
       return new Response(

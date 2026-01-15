@@ -47,9 +47,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ✅ Admin gate is driven by auth.app_metadata.role (same as the client).
-    // This keeps the project consistent and avoids a hard dependency on a separate roles table.
-    const isAdmin = user.app_metadata?.role === 'admin';
+    // Check if user is admin by querying the user_roles table
+    const { data: roleData, error: roleError } = await supabaseClient
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    const isAdmin = !roleError && roleData !== null;
     if (!isAdmin) {
       return new Response(JSON.stringify({ error: 'Admin access required' }), {
         status: 403,

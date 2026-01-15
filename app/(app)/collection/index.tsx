@@ -191,7 +191,6 @@ export default function CollectionScreen() {
                 onPress={() => router.push('/(app)/admin')}
                 activeOpacity={0.8}
               >
-                <Settings size={18} color="#fff" />
                 <Text style={styles.adminButtonText}>Admin Dashboard</Text>
               </TouchableOpacity>
             )}
@@ -501,8 +500,8 @@ const styles = StyleSheet.create({
   },
 
   adminButton: {
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: 'rgba(29, 78, 216, 0.9)',
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -510,12 +509,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 78,
     marginBottom: 12,
-    gap: 8,
   },
   adminButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
 
   headerCentered: {

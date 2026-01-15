@@ -13,10 +13,12 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { Camera, X } from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
 
 const BACKGROUND_IMAGE = require('@/assets/images/vaultedslabs-background-image.jpg');
 
 export default function ScanScreen() {
+  const { isAdmin } = useAuth();
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraActive, setCameraActive] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -81,6 +83,16 @@ export default function ScanScreen() {
           <View style={styles.bgOverlay} />
 
           <View style={styles.container}>
+            {isAdmin && (
+              <TouchableOpacity
+                style={styles.adminButton}
+                onPress={() => router.push('/(app)/admin')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+              </TouchableOpacity>
+            )}
+
             <View style={styles.header}>
               <Text style={styles.title}>Scan</Text>
               <Text style={styles.subtitle}>Barcode scanner</Text>
@@ -150,6 +162,16 @@ export default function ScanScreen() {
         <View style={styles.bgOverlay} />
 
         <View style={styles.container}>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.adminButton}
+              onPress={() => router.push('/(app)/admin')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.header}>
             <Text style={styles.title}>Scan</Text>
             <Text style={styles.subtitle}>Barcode scanner</Text>
@@ -195,7 +217,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  header: { paddingHorizontal: 20, paddingTop: 78, paddingBottom: 14, alignItems: 'center' },
+  adminButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(29, 78, 216, 0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginTop: 78,
+    marginBottom: 12,
+  },
+  adminButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, alignItems: 'center' },
   title: { color: '#fff', fontSize: 26, fontWeight: '800', textAlign: 'center' },
   subtitle: { color: 'rgba(255,255,255,0.75)', marginTop: 6, fontSize: 14, textAlign: 'center' },
 

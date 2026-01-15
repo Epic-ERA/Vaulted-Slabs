@@ -19,7 +19,7 @@ const POKEBALL_ICON = require('@/assets/images/pokeball-icon.jpg');
 
 function AppHeader() {
   const router = useRouter();
-  const { user, isAdmin, signOut } = useAuth();
+  const { user, signOut } = useAuth();
 
   const handleLogout = async () => {
     // ✅ ONLY sign out here.
@@ -32,16 +32,6 @@ function AppHeader() {
   return (
     <View style={styles.appHeader}>
       <View style={styles.headerCenter}>
-        {isAdmin ? (
-          <TouchableOpacity
-            style={[styles.headerButton, styles.adminButton]}
-            onPress={() => router.push('/(app)/admin')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.headerButtonText}>Admin</Text>
-          </TouchableOpacity>
-        ) : null}
-
         <TouchableOpacity
           style={[styles.headerButton, styles.profileButton]}
           onPress={() => router.push('/(app)/profile')}
@@ -204,7 +194,6 @@ const styles = StyleSheet.create({
   },
   profileButton: { backgroundColor: '#1D4ED8' },
   logoutButton: { backgroundColor: '#DC0A2D' },
-  adminButton: { backgroundColor: 'rgba(255,255,255,0.08)' },
 
   headerButtonText: { color: '#fff', fontWeight: '900', fontSize: 14 },
 

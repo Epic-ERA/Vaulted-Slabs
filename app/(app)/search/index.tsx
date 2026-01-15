@@ -15,12 +15,15 @@ import {
 import { searchCards } from '@/services/cards';
 import { lookupPSACert, type PSACertData } from '@/services/psa';
 import type { Database } from '@/types/database';
+import { useAuth } from '@/contexts/AuthContext';
+import { router } from 'expo-router';
 
 const BACKGROUND_IMAGE = require('@/assets/images/vaultedslabs-background-image.jpg');
 
 type TcgCard = Database['public']['Tables']['tcg_cards']['Row'];
 
 export default function SearchScreen() {
+  const { isAdmin } = useAuth();
   const [query, setQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'cards' | 'psa'>('cards');
   const [cardResults, setCardResults] = useState<TcgCard[]>([]);
@@ -67,6 +70,16 @@ export default function SearchScreen() {
         <View style={styles.bgOverlay} />
 
         <View style={styles.container}>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.adminButton}
+              onPress={() => router.push('/(app)/admin')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.header}>
             <Text style={styles.title}>Search</Text>
             <Text style={styles.subtitle}>Find cards or lookup PSA certs</Text>
@@ -225,7 +238,25 @@ const styles = StyleSheet.create({
 
   container: { flex: 1, backgroundColor: 'transparent' },
 
-  header: { paddingHorizontal: 20, paddingTop: 78, paddingBottom: 14, alignItems: 'center' },
+  adminButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(29, 78, 216, 0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginTop: 78,
+    marginBottom: 12,
+  },
+  adminButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, alignItems: 'center' },
   title: { color: '#fff', fontSize: 26, fontWeight: '800', textAlign: 'center' },
   subtitle: { color: 'rgba(255,255,255,0.75)', marginTop: 6, fontSize: 14, textAlign: 'center' },
 

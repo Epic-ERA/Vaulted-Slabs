@@ -80,6 +80,16 @@ export default function SetsScreen() {
             contentContainerStyle={styles.emptyContainer}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
           >
+            {isAdmin && (
+              <TouchableOpacity
+                style={styles.adminButton}
+                onPress={() => router.push('/(app)/admin')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+              </TouchableOpacity>
+            )}
+
             <View style={styles.header}>
               <Text style={styles.title}>Pokémon TCG Sets</Text>
               <Text style={styles.subtitle}>Browse your collection by set</Text>
@@ -113,6 +123,16 @@ export default function SetsScreen() {
           contentContainerStyle={styles.contentContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
         >
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.adminButton}
+              onPress={() => router.push('/(app)/admin')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.header}>
             <Text style={styles.title}>Pokémon TCG Sets</Text>
             <Text style={styles.subtitle}>Browse your collection by set</Text>
@@ -175,8 +195,26 @@ const styles = StyleSheet.create({
 
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
 
+  adminButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(29, 78, 216, 0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginTop: 78,
+    marginBottom: 12,
+  },
+  adminButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
   // ✅ centered header + safe top padding
-  header: { paddingHorizontal: 20, paddingTop: 78, paddingBottom: 14, alignItems: 'center' },
+  header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, alignItems: 'center' },
   title: { fontSize: 26, fontWeight: '800', color: '#fff', textAlign: 'center' },
   subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.75)', textAlign: 'center', marginTop: 6 },
 
