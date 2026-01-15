@@ -18,8 +18,9 @@ import { getCollectionItems, createCollectionItem } from '@/services/collection'
 import { getCardById, getCardsBySet } from '@/services/cards';
 import { getAllSets } from '@/services/sets';
 import type { Database } from '@/types/database';
-import { CheckCircle, Plus, X } from 'lucide-react-native';
+import { CheckCircle, Plus, X, Settings } from 'lucide-react-native';
 import { GRADING_COMPANIES, VARIANTS } from '@/lib/constants';
+import { router } from 'expo-router';
 
 const BACKGROUND_IMAGE = require('@/assets/images/vaultedslabs-background-image.jpg');
 
@@ -35,7 +36,7 @@ type TcgSet = Database['public']['Tables']['tcg_sets']['Row'];
 type TcgCard = Database['public']['Tables']['tcg_cards']['Row'];
 
 export default function CollectionScreen() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [items, setItems] = useState<EnrichedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -184,7 +185,18 @@ export default function CollectionScreen() {
           <View style={styles.bgOverlay} />
 
           <View style={styles.container}>
-            <View style={styles.header}>
+            {isAdmin && (
+              <TouchableOpacity
+                style={styles.adminButton}
+                onPress={() => router.push('/(app)/admin')}
+                activeOpacity={0.8}
+              >
+                <Settings size={18} color="#fff" />
+                <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.headerCentered}>
               <Text style={styles.title}>My Collection</Text>
               <Text style={styles.subtitle}>0 items</Text>
             </View>
@@ -210,8 +222,19 @@ export default function CollectionScreen() {
         <View style={styles.bgOverlay} />
 
         <View style={styles.container}>
-          <View style={styles.header}>
-            <View>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.adminButton}
+              onPress={() => router.push('/(app)/admin')}
+              activeOpacity={0.8}
+            >
+              <Settings size={18} color="#fff" />
+              <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.headerWithAdd}>
+            <View style={styles.headerCenteredContent}>
               <Text style={styles.title}>My Collection</Text>
               <Text style={styles.subtitle}>{items.length} items</Text>
             </View>
@@ -477,16 +500,46 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
 
-  // ✅ consistent header spacing + centered titles
-  header: {
+  adminButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(29, 78, 216, 0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginTop: 78,
+    marginBottom: 12,
+    gap: 8,
+  },
+  adminButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  headerCentered: {
     paddingHorizontal: 20,
-    paddingTop: 78,
+    paddingTop: 14,
+    paddingBottom: 14,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+
+  headerWithAdd: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
     paddingBottom: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: 'transparent',
   },
+  headerCenteredContent: {
+    flex: 1,
+    alignItems: 'center',
+  },
+
   addButtonHeader: {
     width: 48,
     height: 48,
