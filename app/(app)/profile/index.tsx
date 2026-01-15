@@ -387,7 +387,7 @@ export default function ProfileScreen() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
+      const { error } = await supabase.from('profiles').upsert(payload as any, { onConflict: 'id' });
       if (error) throw error;
 
       Alert.alert('Saved', 'Your profile has been updated.');

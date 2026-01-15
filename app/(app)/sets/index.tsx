@@ -123,6 +123,7 @@ export default function SetsScreen() {
               const starterInfo = STARTER_SETS.find((s) => s.id === set.id);
               const assetKey = starterInfo?.assetKey;
               const logoAsset = assetKey ? SET_LOGO_ASSETS[assetKey] : null;
+              const remoteLogoUrl = set.logo_url || set.symbol_url;
 
               return (
                 <TouchableOpacity
@@ -132,13 +133,17 @@ export default function SetsScreen() {
                   activeOpacity={0.85}
                 >
                   <View style={styles.logoContainer}>
-                    {logoAsset ? (
-                      <Image source={logoAsset} style={styles.logo} resizeMode="contain" />
-                    ) : (
-                      <View style={styles.placeholderLogo}>
-                        <Text style={styles.placeholderText}>{set.name[0]}</Text>
-                      </View>
-                    )}
+                    <View style={styles.logoBackground}>
+                      {logoAsset ? (
+                        <Image source={logoAsset} style={styles.logo} resizeMode="contain" />
+                      ) : remoteLogoUrl ? (
+                        <Image source={{ uri: remoteLogoUrl }} style={styles.logo} resizeMode="contain" />
+                      ) : (
+                        <View style={styles.placeholderLogo}>
+                          <Text style={styles.placeholderText}>{set.name[0]}</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
 
                   <View style={styles.setInfo}>
@@ -194,12 +199,21 @@ const styles = StyleSheet.create({
   },
 
   logoContainer: { width: 80, height: 80, marginRight: 16, justifyContent: 'center', alignItems: 'center' },
+  logoBackground: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 4,
+  },
   logo: { width: '100%', height: '100%' },
 
   placeholderLogo: {
-    width: 80,
-    height: 80,
-    borderRadius: 10,
+    width: '100%',
+    height: '100%',
+    borderRadius: 6,
     backgroundColor: 'rgba(255,255,255,0.10)',
     justifyContent: 'center',
     alignItems: 'center',

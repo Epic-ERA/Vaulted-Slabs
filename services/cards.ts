@@ -36,6 +36,19 @@ export async function getCardById(cardId: string): Promise<TcgCard | null> {
   return data;
 }
 
+export async function searchCards(query: string, limit: number = 20): Promise<TcgCard[]> {
+  if (!query.trim()) return [];
+
+  const { data, error } = await supabase
+    .from('tcg_cards')
+    .select('*')
+    .ilike('name', `%${query}%`)
+    .limit(limit);
+
+  if (error) throw error;
+  return data || [];
+}
+
 export function sortCards(cards: TcgCard[]): TcgCard[] {
   return cards.sort((a, b) => {
     const aNum = extractLeadingNumber(a.number);

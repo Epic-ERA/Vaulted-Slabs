@@ -55,6 +55,10 @@ export const SET_LOGO_ASSETS: Record<string, any> = {
   'jungle': require('@/assets/images/jungle-set-logo-june-15th-1999.png'),
   'fossil': require('@/assets/images/fossil-set-logo-october-9th-1999.png'),
   'team-rocket': require('@/assets/images/team-rocket-logo-april-23rd-2000.png'),
+  'base-set-2': require('@/assets/images/base-set-2-logo-february-23rd-2000.png'),
+  'gym-heroes': require('@/assets/images/gym-heroes-logo-august-13th-2000.png'),
+  'gym-challenge': require('@/assets/images/gym-challenge-logo-october-15th-2000.png'),
+  'wizards-promos': require('@/assets/images/wizards-black-star-promos-logo-june-30th-1999.png'),
 };
 
 export const GRADING_COMPANIES = [

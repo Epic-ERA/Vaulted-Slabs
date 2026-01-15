@@ -122,11 +122,6 @@ export default function AppLayout() {
         initialRouteName="sets/index"
         screenOptions={{
           headerShown: false,
-          sceneContainerStyle: {
-            backgroundColor: 'transparent',
-            paddingTop: scenePaddingTop,
-            paddingBottom: TAB_BAR_HEIGHT + 12,
-          },
           tabBarActiveTintColor: '#DC0A2D',
           tabBarInactiveTintColor: 'rgba(255,255,255,0.70)',
           tabBarLabelStyle: { fontSize: 12, fontWeight: '900' },
