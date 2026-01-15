@@ -1,6 +1,6 @@
 // app/(app)/_layout.tsx
-import React from 'react';
-import { Tabs, Redirect } from 'expo-router';
+import React, { useEffect, useRef } from 'react';
+import { Tabs, useRouter, useSegments } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   ActivityIndicator,
@@ -60,6 +60,44 @@ function AppHeader() {
 export default function AppLayout() {
   const { loading, user } = useAuth();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const segments = useSegments();
+
+  // Track redirect state to prevent loops
+  const hasRedirectedRef = useRef(false);
+  const isRedirectingRef = useRef(false);
+
+  // Handle auth-based navigation in useEffect to avoid render-phase issues
+  useEffect(() => {
+    // Skip during loading or if already redirecting
+    if (loading || isRedirectingRef.current) return;
+
+    // Check if we're currently in the (app) group
+    const inAppGroup = segments[0] === '(app)';
+
+    // If user logged out and we're in the app group, redirect once
+    if (!user && inAppGroup && !hasRedirectedRef.current) {
+      console.log('[ROUTING] User logged out, redirecting to home');
+      hasRedirectedRef.current = true;
+      isRedirectingRef.current = true;
+
+      // Small delay to ensure auth state is settled
+      setTimeout(() => {
+        router.replace('/');
+        // Reset after navigation completes
+        setTimeout(() => {
+          isRedirectingRef.current = false;
+        }, 100);
+      }, 50);
+    }
+
+    // Reset redirect flag when user logs back in
+    if (user && hasRedirectedRef.current) {
+      console.log('[ROUTING] User logged in, resetting redirect flag');
+      hasRedirectedRef.current = false;
+      isRedirectingRef.current = false;
+    }
+  }, [loading, user, segments, router]);
 
   // Show loading state while checking auth
   if (loading) {
@@ -70,11 +108,13 @@ export default function AppLayout() {
     );
   }
 
-  // Redirect to home if not logged in
-  // This is the proper way to handle auth redirects in Expo Router
+  // If not logged in, show loading while navigation happens
   if (!user) {
-    console.log('[ROUTING] User not authenticated, redirecting to home');
-    return <Redirect href="/" />;
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#DC0A2D" />
+      </View>
+    );
   }
 
   console.log('[ROUTING] User authenticated, rendering app layout');
