@@ -1,6 +1,6 @@
 // app/(app)/_layout.tsx
-import React, { useEffect, useRef } from 'react';
-import { Tabs, useRouter } from 'expo-router';
+import React from 'react';
+import { Tabs, Redirect } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   ActivityIndicator,
@@ -18,7 +18,6 @@ const BACKGROUND_IMAGE = require('@/assets/images/vaultedslabs-background-image.
 const POKEBALL_ICON = require('@/assets/images/pokeball-icon.jpg');
 
 function AppHeader() {
-  const router = useRouter();
   const { user, signOut, isLoggingOut } = useAuth();
 
   const handleLogout = async () => {
@@ -34,7 +33,11 @@ function AppHeader() {
       <View style={styles.headerCenter}>
         <TouchableOpacity
           style={[styles.headerButton, styles.profileButton]}
-          onPress={() => router.push('/(app)/profile')}
+          onPress={() => {
+            // Use Expo Router's Link navigation
+            const { router } = require('expo-router');
+            router.push('/(app)/profile');
+          }}
           activeOpacity={0.85}
           disabled={isLoggingOut}
         >
@@ -55,36 +58,10 @@ function AppHeader() {
 }
 
 export default function AppLayout() {
-  const router = useRouter();
   const { loading, user } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // ✅ Avoid repeated replace() calls
-  const kickedOutRef = useRef(false);
-  const lastUserIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const currentUserId = user?.id || null;
-
-    // Detect logout transition: was logged in -> now logged out
-    const justLoggedOut = lastUserIdRef.current && !currentUserId;
-
-    if (!loading && !user && !kickedOutRef.current) {
-      console.log('[ROUTING] User logged out, redirecting to home');
-      kickedOutRef.current = true;
-      router.replace('/');
-    }
-
-    if (!loading && user) {
-      console.log('[ROUTING] User logged in, allowing app access');
-      kickedOutRef.current = false;
-    }
-
-    lastUserIdRef.current = currentUserId;
-    // Note: router is stable in Expo Router, so it's safe to exclude from deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, user]);
-
+  // Show loading state while checking auth
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -93,14 +70,14 @@ export default function AppLayout() {
     );
   }
 
+  // Redirect to home if not logged in
+  // This is the proper way to handle auth redirects in Expo Router
   if (!user) {
-    // ✅ Stable frame while navigation happens
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#DC0A2D" />
-      </View>
-    );
+    console.log('[ROUTING] User not authenticated, redirecting to home');
+    return <Redirect href="/" />;
   }
+
+  console.log('[ROUTING] User authenticated, rendering app layout');
 
   const HEADER_HEIGHT = 50;
   const scenePaddingTop = insets.top + HEADER_HEIGHT + 10;
