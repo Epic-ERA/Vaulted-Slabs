@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // ✅ Prevent redundant state writes (reduces rerender churn on web)
   const lastUserIdRef = useRef<string | null>(null);
@@ -72,13 +73,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Fetch user role from database
+  useEffect(() => {
+    async function fetchUserRole() {
+      if (!user?.id) {
+        setIsAdmin(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin')
+          .maybeSingle();
+
+        if (!error && data) {
+          setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error);
+        setIsAdmin(false);
+      }
+    }
+
+    fetchUserRole();
+  }, [user?.id]);
+
   async function signOut() {
     // ✅ Do not manually set user/session here.
     // Let the Supabase auth listener update state exactly once.
     await supabase.auth.signOut();
   }
 
-  const isAdmin = user?.app_metadata?.role === 'admin';
   const displayName = user?.email ?? 'Guest';
 
   const value = useMemo<AuthContextType>(
