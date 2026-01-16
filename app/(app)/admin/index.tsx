@@ -1,5 +1,5 @@
 // app/(app)/admin/index.tsx
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -33,31 +33,6 @@ interface UserData {
 
 type SyncMode = 'starter' | 'full' | null;
 
-function extractInvokeErrorMessage(err: any): string {
-  // Supabase Functions errors often include useful info in error.context.body
-  const body = err?.context?.body;
-
-  if (typeof body === 'string' && body.trim().length) return body;
-  if (typeof body === 'object' && body) {
-    // common shapes: { error: '...' } or { message: '...' }
-    if (typeof body.error === 'string' && body.error.trim().length) return body.error;
-    if (typeof body.message === 'string' && body.message.trim().length) return body.message;
-    try {
-      return JSON.stringify(body);
-    } catch {
-      // ignore
-    }
-  }
-
-  if (typeof err?.message === 'string' && err.message.trim().length) return err.message;
-
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return 'Unknown error';
-  }
-}
-
 export default function AdminScreen() {
   const { isAdmin } = useAuth();
   const params = useLocalSearchParams();
@@ -74,10 +49,6 @@ export default function AdminScreen() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Prevent double-taps / accidental multi-fire on web + mobile
-  const syncLockRef = useRef(false);
-
-  // Show any errors reliably on Web + Mobile
   const showMsg = (title: string, message: string) => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       // eslint-disable-next-line no-alert
@@ -115,21 +86,34 @@ export default function AdminScreen() {
       setLogs(latestLogs);
     } catch (error: any) {
       console.error('Error loading logs:', error);
-      // Avoid spamming alerts; just log. UI already handles "No logs".
     } finally {
       setLoading(false);
     }
   }
 
+  async function getAccessTokenOrThrow() {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+
+    const token = data?.session?.access_token;
+    if (!token) {
+      throw new Error('Not authenticated. Please log in again and retry.');
+    }
+    return token;
+  }
+
   async function loadUsers() {
     setUsersLoading(true);
     try {
+      const token = await getAccessTokenOrThrow();
+
       const { data, error } = await supabase.functions.invoke('admin-users', {
         body: { action: 'list' },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (error) {
-        throw new Error(extractInvokeErrorMessage(error));
+        throw new Error((error as any)?.message || (error as any)?.context || JSON.stringify(error));
       }
 
       setUsers((data as any)?.users || []);
@@ -142,68 +126,57 @@ export default function AdminScreen() {
   }
 
   async function handleSync(fullSync = false) {
-    // hard lock to stop double-trigger issues (web click bubbling / double taps)
-    if (syncLockRef.current) return;
     if (syncing) return;
 
-    syncLockRef.current = true;
     setSyncing(true);
     setSyncMode(fullSync ? 'full' : 'starter');
 
     try {
-      console.log('[SYNC] Starting pokemon-sync...', { fullSync });
+      const token = await getAccessTokenOrThrow();
 
+      console.log('[SYNC] Starting pokemon-sync...', { fullSync });
       const startedAt = Date.now();
 
       const { data, error } = await supabase.functions.invoke('pokemon-sync', {
         body: { fullSync },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       console.log('[SYNC] Response', { data, error, ms: Date.now() - startedAt });
 
       if (error) {
-        // This will now surface the real error body instead of the generic non-2xx
-        throw new Error(extractInvokeErrorMessage(error));
+        throw new Error((error as any)?.message || (error as any)?.context || JSON.stringify(error));
       }
 
       const setsSynced = (data as any)?.sets_synced ?? 0;
       const cardsSynced = (data as any)?.cards_synced ?? 0;
 
       showMsg('Sync Complete', `Synced ${setsSynced} sets and ${cardsSynced} cards`);
-
       await loadLogs();
-
-      // Bring user back to sets after a successful sync
       router.push('/(app)/sets');
     } catch (error: any) {
       console.error('Sync error:', error);
       showMsg(
         'Sync Failed',
-        error?.message ||
-          'An error occurred. Check Supabase → Edge Functions logs for pokemon-sync.'
+        error?.message || 'An error occurred. Check Supabase → Edge Functions logs for pokemon-sync.'
       );
     } finally {
       setSyncing(false);
       setSyncMode(null);
-      // release lock slightly after state update to avoid rapid re-taps
-      setTimeout(() => {
-        syncLockRef.current = false;
-      }, 250);
     }
   }
 
   async function handleSetRole(userId: string, role: 'admin' | 'user') {
     try {
+      const token = await getAccessTokenOrThrow();
+
       const { error } = await supabase.functions.invoke('admin-users', {
-        body: {
-          action: 'setRole',
-          userId,
-          role,
-        },
+        body: { action: 'setRole', userId, role },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (error) {
-        throw new Error(extractInvokeErrorMessage(error));
+        throw new Error((error as any)?.message || (error as any)?.context || JSON.stringify(error));
       }
 
       showMsg('Success', `User role updated to ${role}`);
@@ -242,9 +215,7 @@ export default function AdminScreen() {
               activeOpacity={0.85}
             >
               <DatabaseIcon size={16} color={activeTab === 'sync' ? '#0b0b0b' : '#fff'} />
-              <Text style={[styles.tabText, activeTab === 'sync' && styles.tabTextActive]}>
-                Sync
-              </Text>
+              <Text style={[styles.tabText, activeTab === 'sync' && styles.tabTextActive]}>Sync</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -322,13 +293,6 @@ export default function AdminScreen() {
                       )}
                     </TouchableOpacity>
                   </View>
-
-                  {Platform.OS === 'web' && (
-                    <Text style={styles.webHint}>
-                      If nothing happens, open DevTools Console and look for “[SYNC] …” logs. The page
-                      will also show an alert on error.
-                    </Text>
-                  )}
                 </View>
 
                 <View style={styles.card}>
@@ -495,25 +459,14 @@ const styles = StyleSheet.create({
 
   container: { flex: 1, backgroundColor: 'transparent' },
 
-  // pushes content below your top app header (email/logout)
   header: {
     padding: 20,
     paddingTop: 78,
     paddingBottom: 14,
     backgroundColor: 'rgba(0,0,0,0.0)',
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.80)',
-    textAlign: 'center',
-    marginTop: 6,
-  },
+  title: { fontSize: 26, fontWeight: '800', color: '#fff', textAlign: 'center' },
+  subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.80)', textAlign: 'center', marginTop: 6 },
 
   tabRow: {
     flexDirection: 'row',
@@ -538,19 +491,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  tabButtonActive: {
-    backgroundColor: '#DC0A2D',
-    borderColor: '#DC0A2D',
-  },
-  tabText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 12,
-    letterSpacing: 0.3,
-  },
-  tabTextActive: {
-    color: '#0b0b0b',
-  },
+  tabButtonActive: { backgroundColor: '#DC0A2D', borderColor: '#DC0A2D' },
+  tabText: { color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 0.3 },
+  tabTextActive: { color: '#0b0b0b' },
 
   content: { flex: 1, paddingHorizontal: 16 },
   contentPad: { paddingTop: 16, paddingBottom: 140 },
@@ -585,45 +528,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#DC0A2D',
     borderRadius: 8,
   },
-  buttonSecondary: {
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderWidth: 2,
-    borderColor: '#DC0A2D',
-  },
+  buttonSecondary: { backgroundColor: 'rgba(0,0,0,0.3)', borderWidth: 2, borderColor: '#DC0A2D' },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
   buttonTextSecondary: { color: '#DC0A2D' },
 
-  webHint: {
-    marginTop: 12,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.65)',
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-
   logsLoader: { marginVertical: 20 },
   emptyText: { fontSize: 14, color: 'rgba(255,255,255,0.65)', fontStyle: 'italic' },
 
-  logItem: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  logHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
+  logItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
+  logHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   logJob: { fontSize: 14, fontWeight: '600', color: '#fff' },
 
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' },
   statusSuccess: { backgroundColor: 'rgba(76, 175, 80, 0.3)' },
   statusFailed: { backgroundColor: 'rgba(244, 67, 54, 0.3)' },
   statusRunning: { backgroundColor: 'rgba(255, 152, 0, 0.3)' },
@@ -647,12 +564,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.14)',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  refreshLogsText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 13,
-    letterSpacing: 0.2,
-  },
+  refreshLogsText: { color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.2 },
 
   comingSoonText: { fontSize: 14, color: '#ff9500', fontStyle: 'italic' },
 
@@ -667,26 +579,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.2)',
   },
 
-  userItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
+  userItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
   userInfo: { flex: 1 },
   userEmailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
   userEmail: { fontSize: 16, fontWeight: '600', color: '#fff' },
 
-  adminBadge: {
-    backgroundColor: 'rgba(220,10,45,0.3)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#DC0A2D',
-  },
+  adminBadge: { backgroundColor: 'rgba(220,10,45,0.3)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#DC0A2D' },
   adminBadgeText: { fontSize: 10, fontWeight: '600', color: '#DC0A2D' },
 
   userDate: { fontSize: 12, color: 'rgba(255,255,255,0.65)' },
