@@ -22,7 +22,7 @@ function AppHeader() {
 
   const handleLogout = async () => {
     // ✅ ONLY sign out here.
-    // The AppLayout effect is the single redirect point to "/".
+    // The AppLayout effect will redirect to login page.
     await signOut();
   };
 
@@ -75,20 +75,14 @@ export default function AppLayout() {
     // Check if we're currently in the (app) group
     const inAppGroup = segments[0] === '(app)';
 
-    // If user logged out and we're in the app group, redirect once
+    // If user logged out and we're in the app group, redirect immediately
     if (!user && inAppGroup && !hasRedirectedRef.current) {
-      console.log('[ROUTING] User logged out, redirecting to home');
+      console.log('[ROUTING] User logged out, redirecting to login');
       hasRedirectedRef.current = true;
       isRedirectingRef.current = true;
 
-      // Small delay to ensure auth state is settled
-      setTimeout(() => {
-        router.replace('/');
-        // Reset after navigation completes
-        setTimeout(() => {
-          isRedirectingRef.current = false;
-        }, 100);
-      }, 50);
+      // Redirect immediately to login page
+      router.replace('/(auth)/login');
     }
 
     // Reset redirect flag when user logs back in
