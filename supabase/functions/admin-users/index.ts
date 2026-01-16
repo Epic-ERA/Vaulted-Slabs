@@ -1,97 +1,131 @@
 // supabase/functions/admin-users/index.ts
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
-import { createClient } from 'npm:@supabase/supabase-js@2.58.0';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
-function getEnv(name: string, fallback?: string) {
-  return Deno.env.get(name) ?? fallback ?? '';
-}
-
-function getSupabaseAdminClient() {
-  const supabaseUrl = getEnv('PROJECT_URL') || getEnv('SUPABASE_URL');
-  const serviceKey = getEnv('SERVICE_ROLE_KEY') || getEnv('SUPABASE_SERVICE_ROLE_KEY');
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Missing Supabase server env (PROJECT_URL/SERVICE_ROLE_KEY)');
+function envAny(keys: string[]): string {
+  for (const k of keys) {
+    const v = Deno.env.get(k);
+    if (v && v.length > 0) return v;
   }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false },
-  });
-}
-
-function isAdminUser(user: any) {
-  return user?.app_metadata?.role === 'admin';
+  return '';
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { status: 200, headers: corsHeaders });
-  }
-
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Missing authorization header');
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    const supabaseClient = getSupabaseAdminClient();
+    const supabaseUrl = envAny(['SUPABASE_URL', 'PROJECT_URL']);
+    const serviceKey = envAny(['SUPABASE_SERVICE_ROLE_KEY', 'SERVICE_ROLE_KEY']);
+
+    if (!supabaseUrl || !serviceKey) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Missing server env vars. Need SUPABASE_URL (or PROJECT_URL) and SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY).',
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabaseClient = createClient(supabaseUrl, serviceKey);
 
     const token = authHeader.replace('Bearer ', '').trim();
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    const { data: userRes, error: userError } = await supabaseClient.auth.getUser(token);
 
-    if (userError || !user) throw new Error('Unauthorized');
-    if (!isAdminUser(user)) throw new Error('Forbidden: Admin access required');
+    const user = userRes?.user;
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ✅ Admin check: app_metadata only (no DB dependency)
+    const isAdmin = user.app_metadata?.role === 'admin';
+    if (!isAdmin) {
+      return new Response(JSON.stringify({ error: 'Forbidden: Admin access required' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const { action, userId, role } = await req.json();
 
     if (action === 'list') {
-      const { data: { users }, error: listError } = await supabaseClient.auth.admin.listUsers();
-      if (listError) throw listError;
+      const { data, error } = await supabaseClient.auth.admin.listUsers();
+      if (error) throw error;
 
-      const usersData = users.map((u) => ({
+      const users = (data?.users || []).map((u) => ({
         id: u.id,
         email: u.email || '',
         created_at: u.created_at,
         last_sign_in_at: u.last_sign_in_at,
-        app_metadata: u.app_metadata || {},
+        app_metadata: { role: u.app_metadata?.role || 'user' },
       }));
 
-      return new Response(JSON.stringify({ users: usersData }), {
+      return new Response(JSON.stringify({ users }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     if (action === 'setRole') {
-      if (!userId || !role) throw new Error('Missing userId or role');
-      if (role !== 'admin' && role !== 'user') throw new Error('Invalid role. Must be "admin" or "user"');
+      if (!userId || !role) {
+        return new Response(JSON.stringify({ error: 'Missing userId or role' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
+      if (role !== 'admin' && role !== 'user') {
+        return new Response(JSON.stringify({ error: 'Invalid role. Must be "admin" or "user"' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // ✅ Primary source of truth: auth app_metadata.role
       const { error: updateError } = await supabaseClient.auth.admin.updateUserById(userId, {
         app_metadata: { role },
       });
 
       if (updateError) throw updateError;
 
+      // Optional: if you later add user_roles table, keep it in sync (best effort, no hard dependency)
+      try {
+        await supabaseClient.from('user_roles').upsert({ user_id: userId, role }, { onConflict: 'user_id' });
+      } catch {}
+
       return new Response(JSON.stringify({ success: true, message: `User role updated to ${role}` }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    throw new Error('Invalid action');
+    return new Response(JSON.stringify({ error: 'Invalid action' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error: any) {
     console.error('Error in admin-users:', error);
     return new Response(JSON.stringify({ error: error?.message || 'Internal server error' }), {
-      status: 400,
+      status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
