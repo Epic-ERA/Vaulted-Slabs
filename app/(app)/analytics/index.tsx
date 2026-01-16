@@ -71,8 +71,8 @@ export default function AnalyticsScreen() {
       <ImageBackground source={BACKGROUND_IMAGE} style={styles.bg} resizeMode="cover">
         <View style={styles.bgOverlay} />
 
-        <View style={styles.container}>
-          {isAdmin && (
+        {isAdmin && (
+          <View style={styles.topButtonContainer}>
             <TouchableOpacity
               style={styles.adminButton}
               onPress={() => router.push('/(app)/admin')}
@@ -80,8 +80,10 @@ export default function AnalyticsScreen() {
             >
               <Text style={styles.adminButtonText}>Admin Dashboard</Text>
             </TouchableOpacity>
-          )}
+          </View>
+        )}
 
+        <View style={styles.container}>
           <View style={styles.header}>
             <Text style={styles.title}>Analytics</Text>
             <Text style={styles.subtitle}>Collection insights and value</Text>
@@ -153,8 +155,16 @@ const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
 
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: 'transparent', paddingTop: 130 },
 
+  topButtonContainer: {
+    position: 'absolute',
+    top: 74,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    paddingHorizontal: 20,
+  },
   adminButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -162,9 +172,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    marginHorizontal: 20,
-    marginTop: 78,
-    marginBottom: 12,
   },
   adminButtonText: {
     color: '#fff',

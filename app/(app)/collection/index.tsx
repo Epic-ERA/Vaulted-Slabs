@@ -184,8 +184,8 @@ export default function CollectionScreen() {
         <ImageBackground source={BACKGROUND_IMAGE} style={styles.bg} resizeMode="cover">
           <View style={styles.bgOverlay} />
 
-          <View style={styles.container}>
-            {isAdmin && (
+          {isAdmin && (
+            <View style={styles.topButtonContainer}>
               <TouchableOpacity
                 style={styles.adminButton}
                 onPress={() => router.push('/(app)/admin')}
@@ -193,8 +193,10 @@ export default function CollectionScreen() {
               >
                 <Text style={styles.adminButtonText}>Admin Dashboard</Text>
               </TouchableOpacity>
-            )}
+            </View>
+          )}
 
+          <View style={styles.container}>
             <View style={styles.headerCentered}>
               <Text style={styles.title}>My Collection</Text>
               <Text style={styles.subtitle}>0 items</Text>
@@ -220,8 +222,8 @@ export default function CollectionScreen() {
       <ImageBackground source={BACKGROUND_IMAGE} style={styles.bg} resizeMode="cover">
         <View style={styles.bgOverlay} />
 
-        <View style={styles.container}>
-          {isAdmin && (
+        {isAdmin && (
+          <View style={styles.topButtonContainer}>
             <TouchableOpacity
               style={styles.adminButton}
               onPress={() => router.push('/(app)/admin')}
@@ -230,8 +232,10 @@ export default function CollectionScreen() {
               <Settings size={18} color="#fff" />
               <Text style={styles.adminButtonText}>Admin Dashboard</Text>
             </TouchableOpacity>
-          )}
+          </View>
+        )}
 
+        <View style={styles.container}>
           <View style={styles.headerWithAdd}>
             <View style={styles.headerCenteredContent}>
               <Text style={styles.title}>My Collection</Text>
@@ -490,7 +494,7 @@ const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
 
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: 'transparent', paddingTop: 130 },
 
   loadingContainer: {
     flex: 1,
@@ -499,16 +503,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
 
+  topButtonContainer: {
+    position: 'absolute',
+    top: 74,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    paddingHorizontal: 20,
+  },
   adminButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(29, 78, 216, 0.9)',
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    marginHorizontal: 20,
-    marginTop: 78,
-    marginBottom: 12,
+    gap: 8,
   },
   adminButtonText: {
     color: '#fff',

@@ -82,8 +82,8 @@ export default function ScanScreen() {
         <ImageBackground source={BACKGROUND_IMAGE} style={styles.bg} resizeMode="cover">
           <View style={styles.bgOverlay} />
 
-          <View style={styles.container}>
-            {isAdmin && (
+          {isAdmin && (
+            <View style={styles.topButtonContainer}>
               <TouchableOpacity
                 style={styles.adminButton}
                 onPress={() => router.push('/(app)/admin')}
@@ -91,8 +91,10 @@ export default function ScanScreen() {
               >
                 <Text style={styles.adminButtonText}>Admin Dashboard</Text>
               </TouchableOpacity>
-            )}
+            </View>
+          )}
 
+          <View style={styles.container}>
             <View style={styles.header}>
               <Text style={styles.title}>Scan</Text>
               <Text style={styles.subtitle}>Barcode scanner</Text>
@@ -161,8 +163,8 @@ export default function ScanScreen() {
       <ImageBackground source={BACKGROUND_IMAGE} style={styles.bg} resizeMode="cover">
         <View style={styles.bgOverlay} />
 
-        <View style={styles.container}>
-          {isAdmin && (
+        {isAdmin && (
+          <View style={styles.topButtonContainer}>
             <TouchableOpacity
               style={styles.adminButton}
               onPress={() => router.push('/(app)/admin')}
@@ -170,8 +172,10 @@ export default function ScanScreen() {
             >
               <Text style={styles.adminButtonText}>Admin Dashboard</Text>
             </TouchableOpacity>
-          )}
+          </View>
+        )}
 
+        <View style={styles.container}>
           <View style={styles.header}>
             <Text style={styles.title}>Scan</Text>
             <Text style={styles.subtitle}>Barcode scanner</Text>
@@ -209,7 +213,7 @@ const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
 
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: 'transparent', paddingTop: 130 },
 
   loadingContainer: {
     flex: 1,
@@ -217,6 +221,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  topButtonContainer: {
+    position: 'absolute',
+    top: 74,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    paddingHorizontal: 20,
+  },
   adminButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -224,9 +236,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    marginHorizontal: 20,
-    marginTop: 78,
-    marginBottom: 12,
   },
   adminButtonText: {
     color: '#fff',
