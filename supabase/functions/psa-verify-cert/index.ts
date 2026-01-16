@@ -1,11 +1,10 @@
 // supabase/functions/psa-verify-cert/index.ts
-import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.58.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
 interface VerifyRequest {
@@ -14,46 +13,44 @@ interface VerifyRequest {
   expected_card_id: string;
 }
 
-function getEnv(name: string, fallback?: string) {
-  return Deno.env.get(name) ?? fallback ?? '';
+function getEnv(name: string): string {
+  return Deno.env.get(name) ?? '';
 }
 
-function getSupabaseAdminClient() {
-  const supabaseUrl = getEnv('PROJECT_URL') || getEnv('SUPABASE_URL');
-  const serviceKey = getEnv('SERVICE_ROLE_KEY') || getEnv('SUPABASE_SERVICE_ROLE_KEY');
+function getSupabaseUrl(): string {
+  return getEnv('SUPABASE_URL') || getEnv('PROJECT_URL');
+}
 
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Missing Supabase server env (PROJECT_URL/SERVICE_ROLE_KEY)');
-  }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false },
-  });
+function getServiceRoleKey(): string {
+  return getEnv('SUPABASE_SERVICE_ROLE_KEY') || getEnv('SERVICE_ROLE_KEY');
 }
 
 function normalizeString(str: string): string {
-  return (str || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .trim();
+  return str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { status: 200, headers: corsHeaders });
-  }
-
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const supabaseClient = getSupabaseAdminClient();
+    const supabaseUrl = getSupabaseUrl();
+    const serviceKey = getServiceRoleKey();
 
-    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+    if (!supabaseUrl || !serviceKey) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Missing Supabase secrets. Set SUPABASE_URL (or PROJECT_URL) and SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY) in your Edge Function secrets.',
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabaseClient = createClient(supabaseUrl, serviceKey);
+
+    const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Missing authorization' }), {
         status: 401,
@@ -61,7 +58,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const token = authHeader.replace('Bearer ', '').trim();
+    const token = authHeader.replace('Bearer ', '');
     const {
       data: { user },
       error: authError,
@@ -106,7 +103,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: cardData, error: cardError } = await supabaseClient
       .from('tcg_cards')
-      .select('id, name, set_id, number')
+      .select('id, name, set_id, number, raw')
       .eq('id', expected_card_id)
       .maybeSingle();
 
@@ -123,7 +120,7 @@ Deno.serve(async (req: Request) => {
       .eq('id', cardData.set_id)
       .maybeSingle();
 
-    const psaApiBase = getEnv('PSA_API_BASE_URL', 'https://api.psacard.com/publicapi').replace(/\/+$/, '');
+    const psaApiBase = getEnv('PSA_API_BASE_URL') || 'https://api.psacard.com/publicapi';
     const psaBearerToken = getEnv('PSA_BEARER_TOKEN');
 
     const psaUrl = `${psaApiBase}/cert/GetByCertNumber/${cert_number}`;
@@ -135,12 +132,7 @@ Deno.serve(async (req: Request) => {
     if (!psaResponse.ok) {
       await supabaseClient
         .from('collection_items')
-        .update({
-          psa_verified: false,
-          psa_verified_at: null,
-          psa_image_url: null,
-          psa_payload: null,
-        })
+        .update({ psa_verified: false, psa_verified_at: null, psa_payload: null })
         .eq('id', collection_item_id);
 
       return new Response(JSON.stringify({ verified: false, error: 'PSA certificate not found or API error' }), {
@@ -161,8 +153,7 @@ Deno.serve(async (req: Request) => {
     let nameMatch = normalizedExpectedName === normalizedPsaName;
     if (!nameMatch) {
       nameMatch =
-        normalizedExpectedName.includes(normalizedPsaName) ||
-        normalizedPsaName.includes(normalizedExpectedName);
+        normalizedExpectedName.includes(normalizedPsaName) || normalizedPsaName.includes(normalizedExpectedName);
     }
 
     let yearMatch = true;
@@ -204,7 +195,7 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error: any) {
     console.error('Error in psa-verify-cert:', error);
-    return new Response(JSON.stringify({ error: error?.message || 'Internal server error' }), {
+    return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
