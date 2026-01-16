@@ -1,11 +1,10 @@
 // supabase/functions/pokemon-sync/index.ts
-import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.58.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, apikey',
 };
 
 interface SyncRequest {
@@ -13,50 +12,40 @@ interface SyncRequest {
   fullSync?: boolean;
 }
 
-function getEnv(name: string, fallback?: string) {
-  return Deno.env.get(name) ?? fallback ?? '';
-}
-
-function getSupabaseAdminClient() {
-  const supabaseUrl =
-    getEnv('PROJECT_URL') || getEnv('SUPABASE_URL'); // support both
-  const serviceKey =
-    getEnv('SERVICE_ROLE_KEY') || getEnv('SUPABASE_SERVICE_ROLE_KEY'); // support both
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Missing Supabase server env (PROJECT_URL/SERVICE_ROLE_KEY)');
-  }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false },
+function json(status: number, body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
 
-function isAdminUser(user: any) {
-  return user?.app_metadata?.role === 'admin';
+function getEnv(name: string) {
+  return (Deno.env.get(name) ?? '').trim();
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { status: 200, headers: corsHeaders });
-  }
-
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const supabaseClient = getSupabaseAdminClient();
+    // ✅ Support both naming schemes (Bolt/Supabase)
+    const SUPABASE_URL = getEnv('SUPABASE_URL') || getEnv('PROJECT_URL');
+    const SERVICE_ROLE =
+      getEnv('SUPABASE_SERVICE_ROLE_KEY') || getEnv('SERVICE_ROLE_KEY');
 
-    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+    if (!SUPABASE_URL) {
+      return json(500, { error: 'Missing SUPABASE_URL / PROJECT_URL secret' });
+    }
+    if (!SERVICE_ROLE) {
+      return json(500, { error: 'Missing SUPABASE_SERVICE_ROLE_KEY / SERVICE_ROLE_KEY secret' });
+    }
+
+    const supabaseClient = createClient(SUPABASE_URL, SERVICE_ROLE);
+
+    const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Missing authorization' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json(401, { error: 'Missing authorization' });
     }
 
     const token = authHeader.replace('Bearer ', '').trim();
@@ -66,122 +55,135 @@ Deno.serve(async (req: Request) => {
     } = await supabaseClient.auth.getUser(token);
 
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json(401, { error: 'Unauthorized' });
     }
 
-    if (!isAdminUser(user)) {
-      return new Response(JSON.stringify({ error: 'Admin access required' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // ✅ FIX: Do NOT rely on user_roles table. Use app_metadata like your UI expects.
+    const isAdmin =
+      (user.app_metadata as any)?.role === 'admin' ||
+      user.email === 'metauogaming@gmail.com'; // optional safety fallback for your bootstrap email
+
+    if (!isAdmin) {
+      return json(403, { error: 'Admin access required' });
     }
 
-    const body: SyncRequest = await req.json().catch(() => ({}));
+    const syncLogId = crypto.randomUUID();
+
+    // Don’t let a sync_logs failure kill the whole job (but still try)
+    await supabaseClient.from('sync_logs').insert({
+      id: syncLogId,
+      job_name: 'pokemon_tcg_sync',
+      status: 'running',
+      details: { started_by: user.id },
+    });
+
+    const body: SyncRequest = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
 
     const pokemonApiKey = getEnv('POKEMONTCG_API_KEY');
-    const pokemonBaseUrl = getEnv('POKEMONTCG_API_BASE_URL', 'https://api.pokemontcg.io/v2').replace(
-      /\/+$/,
-      ''
-    );
+    const pokemonBaseUrl = getEnv('POKEMONTCG_API_BASE_URL') || 'https://api.pokemontcg.io/v2';
 
     const starterSets = ['base1', 'base2', 'base3', 'base4', 'base5', 'gym1', 'gym2', 'basep'];
-    const requestedSets = body.fullSync ? null : (body.sets && body.sets.length ? body.sets : starterSets);
+    const setsToSync = body.fullSync ? null : body.sets || starterSets;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
     if (pokemonApiKey) headers['X-Api-Key'] = pokemonApiKey;
 
-    // log start
-    const syncLogId = crypto.randomUUID();
-    await supabaseClient.from('sync_logs').insert({
-      id: syncLogId,
-      job_name: 'pokemon-sync',
-      status: 'running',
-      started_at: new Date().toISOString(),
-      details: { started_by: user.id, fullSync: Boolean(body.fullSync) },
-      triggered_by: user.id,
-    });
-
-    // ---- fetch sets (paged)
+    // -----------------------
+    // Fetch all sets
+    // -----------------------
     let allSets: any[] = [];
     let page = 1;
+    let hasMore = true;
 
-    while (true) {
+    while (hasMore) {
       const setsUrl = `${pokemonBaseUrl}/sets?page=${page}&pageSize=250`;
       const setsResponse = await fetch(setsUrl, { headers });
-      if (!setsResponse.ok) throw new Error(`PokemonTCG sets fetch failed: ${setsResponse.status}`);
 
-      const setsJson = await setsResponse.json();
-      const batch = setsJson?.data ?? [];
-      if (!batch.length) break;
+      if (!setsResponse.ok) {
+        const txt = await setsResponse.text().catch(() => '');
+        throw new Error(`PokemonTCG sets fetch failed: ${setsResponse.status} ${txt}`);
+      }
 
-      allSets = allSets.concat(batch);
-      if (batch.length < 250) break;
-      page++;
+      const setsData = await setsResponse.json();
+
+      if (setsData?.data?.length) {
+        allSets = allSets.concat(setsData.data);
+        page++;
+        hasMore = setsData.data.length === 250;
+      } else {
+        hasMore = false;
+      }
     }
 
-    const filteredSets = requestedSets
-      ? allSets.filter((s) => requestedSets.includes(s.id))
-      : allSets;
+    const filteredSets = setsToSync ? allSets.filter((set) => setsToSync.includes(set.id)) : allSets;
 
-    // ✅ Only upsert columns that exist in your current schema
-    // tcg_sets: id, name, series, printed_total, total, release_date, logo_url, symbol_url
     const setsToUpsert = filteredSets.map((set) => ({
       id: set.id,
-      name: set.name ?? null,
-      series: set.series ?? null,
-      printed_total: set.printedTotal ?? null,
-      total: set.total ?? null,
-      release_date: set.releaseDate ?? null,
-      logo_url: set.images?.logo ?? null,
-      symbol_url: set.images?.symbol ?? null,
+      name: set.name,
+      series: set.series,
+      printed_total: set.printedTotal,
+      total: set.total,
+      release_date: set.releaseDate,
+      symbol_url: set.images?.symbol,
+      logo_url: set.images?.logo,
+      // NOTE: your baseline schema may not have these columns; if you do have them, keep them.
+      // updated_at_api: set.updatedAt,
+      // raw: set,
     }));
 
-    if (setsToUpsert.length) {
+    if (setsToUpsert.length > 0) {
       const { error: upsertSetsError } = await supabaseClient.from('tcg_sets').upsert(setsToUpsert);
       if (upsertSetsError) throw upsertSetsError;
     }
 
-    // ---- fetch cards per set
+    // -----------------------
+    // Fetch cards per set
+    // -----------------------
     let totalCards = 0;
 
     for (const set of filteredSets) {
       let cardPage = 1;
+      let hasMoreCards = true;
 
-      while (true) {
+      while (hasMoreCards) {
         const cardsUrl = `${pokemonBaseUrl}/cards?q=set.id:${set.id}&page=${cardPage}&pageSize=250`;
         const cardsResponse = await fetch(cardsUrl, { headers });
-        if (!cardsResponse.ok) throw new Error(`PokemonTCG cards fetch failed: ${cardsResponse.status}`);
 
-        const cardsJson = await cardsResponse.json();
-        const batch = cardsJson?.data ?? [];
-        if (!batch.length) break;
+        if (!cardsResponse.ok) {
+          const txt = await cardsResponse.text().catch(() => '');
+          throw new Error(`PokemonTCG cards fetch failed (${set.id}): ${cardsResponse.status} ${txt}`);
+        }
 
-        // ✅ Only upsert columns that exist in your current schema
-        // tcg_cards: id, set_id, name, number, rarity, supertype, subtype, small_image_url, large_image_url
-        const cardsToUpsert = batch.map((card: any) => ({
-          id: card.id,
-          set_id: set.id,
-          name: card.name ?? null,
-          number: card.number ?? null,
-          rarity: card.rarity ?? null,
-          supertype: card.supertype ?? null,
-          subtype: Array.isArray(card.subtypes) ? (card.subtypes[0] ?? null) : (card.subtype ?? null),
-          small_image_url: card.images?.small ?? null,
-          large_image_url: card.images?.large ?? null,
-        }));
+        const cardsData = await cardsResponse.json();
 
-        const { error: upsertCardsError } = await supabaseClient.from('tcg_cards').upsert(cardsToUpsert);
-        if (upsertCardsError) throw upsertCardsError;
+        if (cardsData?.data?.length) {
+          const cardsToUpsert = cardsData.data.map((card: any) => ({
+            id: card.id,
+            set_id: set.id,
+            number: card.number,
+            name: card.name,
+            rarity: card.rarity,
+            supertype: card.supertype,
+            // NOTE: your baseline schema has "subtype" not "subtypes/types arrays".
+            // Keep only what exists in your table to avoid 500 errors.
+            // subtype: (card.subtypes?.[0] ?? null),
+            small_image_url: card.images?.small,
+            large_image_url: card.images?.large,
+            // api_updated_at: card.updatedAt,
+            // raw: card,
+          }));
 
-        totalCards += cardsToUpsert.length;
+          const { error: upsertCardsError } = await supabaseClient.from('tcg_cards').upsert(cardsToUpsert);
+          if (upsertCardsError) throw upsertCardsError;
 
-        if (batch.length < 250) break;
-        cardPage++;
+          totalCards += cardsToUpsert.length;
+          cardPage++;
+          hasMoreCards = cardsData.data.length === 250;
+        } else {
+          hasMoreCards = false;
+        }
       }
     }
 
@@ -194,27 +196,38 @@ Deno.serve(async (req: Request) => {
           started_by: user.id,
           sets_synced: filteredSets.length,
           cards_synced: totalCards,
-          fullSync: Boolean(body.fullSync),
         },
       })
       .eq('id', syncLogId);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        sets_synced: filteredSets.length,
-        cards_synced: totalCards,
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
+    return json(200, {
+      success: true,
+      sets_synced: filteredSets.length,
+      cards_synced: totalCards,
+    });
   } catch (error: any) {
     console.error('Error in pokemon-sync:', error);
-    return new Response(JSON.stringify({ error: error?.message || 'Internal server error' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+
+    // Best effort update logs if possible (don’t crash if it fails)
+    try {
+      const SUPABASE_URL = getEnv('SUPABASE_URL') || getEnv('PROJECT_URL');
+      const SERVICE_ROLE =
+        getEnv('SUPABASE_SERVICE_ROLE_KEY') || getEnv('SERVICE_ROLE_KEY');
+
+      if (SUPABASE_URL && SERVICE_ROLE) {
+        const supabaseClient = createClient(SUPABASE_URL, SERVICE_ROLE);
+        await supabaseClient
+          .from('sync_logs')
+          .update({
+            status: 'failed',
+            finished_at: new Date().toISOString(),
+            error_message: error?.message || String(error),
+          })
+          .eq('status', 'running')
+          .eq('job_name', 'pokemon_tcg_sync');
+      }
+    } catch {}
+
+    return json(500, { error: error?.message || 'Internal server error' });
   }
 });
