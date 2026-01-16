@@ -1,10 +1,11 @@
-//supabase/functions/psa-verify-cert/index.ts
+// supabase/functions/psa-verify-cert/index.ts
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.58.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 interface VerifyRequest {
@@ -13,8 +14,25 @@ interface VerifyRequest {
   expected_card_id: string;
 }
 
+function getEnv(name: string, fallback?: string) {
+  return Deno.env.get(name) ?? fallback ?? '';
+}
+
+function getSupabaseAdminClient() {
+  const supabaseUrl = getEnv('PROJECT_URL') || getEnv('SUPABASE_URL');
+  const serviceKey = getEnv('SERVICE_ROLE_KEY') || getEnv('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error('Missing Supabase server env (PROJECT_URL/SERVICE_ROLE_KEY)');
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+}
+
 function normalizeString(str: string): string {
-  return str
+  return (str || '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
     .trim();
@@ -22,19 +40,20 @@ function normalizeString(str: string): string {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
+    return new Response('ok', { status: 200, headers: corsHeaders });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabaseClient = getSupabaseAdminClient();
 
-    const authHeader = req.headers.get('Authorization');
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Missing authorization' }), {
         status: 401,
@@ -42,8 +61,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+    const token = authHeader.replace('Bearer ', '').trim();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseClient.auth.getUser(token);
 
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -56,13 +78,10 @@ Deno.serve(async (req: Request) => {
     const { collection_item_id, cert_number, expected_card_id } = body;
 
     if (!collection_item_id || !cert_number || !expected_card_id) {
-      return new Response(
-        JSON.stringify({ error: 'Missing required fields' }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const { data: item, error: itemError } = await supabaseClient
@@ -72,39 +91,30 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (itemError || !item) {
-      return new Response(
-        JSON.stringify({ error: 'Collection item not found' }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Collection item not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     if (item.user_id !== user.id) {
-      return new Response(
-        JSON.stringify({ error: 'Not authorized to verify this item' }),
-        {
-          status: 403,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Not authorized to verify this item' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const { data: cardData, error: cardError } = await supabaseClient
       .from('tcg_cards')
-      .select('id, name, set_id, number, raw')
+      .select('id, name, set_id, number')
       .eq('id', expected_card_id)
       .maybeSingle();
 
     if (cardError || !cardData) {
-      return new Response(
-        JSON.stringify({ error: 'Card not found' }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Card not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const { data: setData } = await supabaseClient
@@ -113,17 +123,12 @@ Deno.serve(async (req: Request) => {
       .eq('id', cardData.set_id)
       .maybeSingle();
 
-    const psaApiBase = Deno.env.get('PSA_API_BASE_URL') || 'https://api.psacard.com/publicapi';
-    const psaBearerToken = Deno.env.get('PSA_BEARER_TOKEN') || '';
+    const psaApiBase = getEnv('PSA_API_BASE_URL', 'https://api.psacard.com/publicapi').replace(/\/+$/, '');
+    const psaBearerToken = getEnv('PSA_BEARER_TOKEN');
 
     const psaUrl = `${psaApiBase}/cert/GetByCertNumber/${cert_number}`;
-    const psaHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-
-    if (psaBearerToken) {
-      psaHeaders['Authorization'] = `Bearer ${psaBearerToken}`;
-    }
+    const psaHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (psaBearerToken) psaHeaders['Authorization'] = `Bearer ${psaBearerToken}`;
 
     const psaResponse = await fetch(psaUrl, { headers: psaHeaders });
 
@@ -133,20 +138,15 @@ Deno.serve(async (req: Request) => {
         .update({
           psa_verified: false,
           psa_verified_at: null,
+          psa_image_url: null,
           psa_payload: null,
         })
         .eq('id', collection_item_id);
 
-      return new Response(
-        JSON.stringify({
-          verified: false,
-          error: 'PSA certificate not found or API error',
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      return new Response(JSON.stringify({ verified: false, error: 'PSA certificate not found or API error' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const psaData = await psaResponse.json();
@@ -160,10 +160,9 @@ Deno.serve(async (req: Request) => {
 
     let nameMatch = normalizedExpectedName === normalizedPsaName;
     if (!nameMatch) {
-      const similarity =
+      nameMatch =
         normalizedExpectedName.includes(normalizedPsaName) ||
         normalizedPsaName.includes(normalizedExpectedName);
-      nameMatch = similarity;
     }
 
     let yearMatch = true;
@@ -201,19 +200,13 @@ Deno.serve(async (req: Request) => {
           psa_name: psaCardName,
         },
       }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in psa-verify-cert:', error);
-    return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: error?.message || 'Internal server error' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
