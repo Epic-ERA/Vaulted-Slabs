@@ -87,29 +87,31 @@ export default function SetsScreen() {
             </View>
           )}
 
-          <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.emptyContainer}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
-          >
+          <View style={styles.container}>
             <View style={styles.header}>
               <Text style={styles.title}>Pokémon Sets</Text>
               <Text style={styles.subtitle}>Browse your collection by set</Text>
             </View>
 
-            <Text style={styles.emptyTitle}>No Sets Available</Text>
-            <Text style={styles.emptyText}>Data not synced yet. Admin must run Starter Sync.</Text>
+            <ScrollView
+              style={styles.content}
+              contentContainerStyle={styles.emptyContainer}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
+            >
+              <Text style={styles.emptyTitle}>No Sets Available</Text>
+              <Text style={styles.emptyText}>Data not synced yet. Admin must run Starter Sync.</Text>
 
-            {isAdmin && (
-              <TouchableOpacity
-                style={styles.syncButton}
-                onPress={() => router.push('/(app)/admin?tab=sync')}
-                activeOpacity={0.9}
-              >
-                <Text style={styles.syncButtonText}>Go to Sync</Text>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
+              {isAdmin && (
+                <TouchableOpacity
+                  style={styles.syncButton}
+                  onPress={() => router.push('/(app)/admin?tab=sync')}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.syncButtonText}>Go to Sync</Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
         </ImageBackground>
       </View>
     );
@@ -132,18 +134,19 @@ export default function SetsScreen() {
           </View>
         )}
 
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={styles.contentContainer}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
-        >
+        <View style={styles.container}>
           <View style={styles.header}>
             <Text style={styles.title}>Pokémon TCG Sets</Text>
             <Text style={styles.subtitle}>Browse your collection by set</Text>
           </View>
 
-          <View style={styles.grid}>
-            {sets.map((set) => {
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={styles.contentContainer}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
+          >
+            <View style={styles.grid}>
+              {sets.map((set) => {
               const starterInfo = STARTER_SETS.find((s) => s.id === set.id);
               const assetKey = starterInfo?.assetKey;
               const logoAsset = assetKey ? SET_LOGO_ASSETS[assetKey] : null;
@@ -182,8 +185,9 @@ export default function SetsScreen() {
                 </TouchableOpacity>
               );
             })}
-          </View>
-        </ScrollView>
+            </View>
+          </ScrollView>
+        </View>
       </ImageBackground>
     </View>
   );
@@ -194,8 +198,9 @@ const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
 
-  container: { flex: 1, backgroundColor: 'transparent' },
-  contentContainer: { paddingTop: 130, paddingBottom: 140 },
+  container: { flex: 1, backgroundColor: 'transparent', paddingTop: 130 },
+  content: { flex: 1, paddingHorizontal: 16 },
+  contentContainer: { paddingTop: 6, paddingBottom: 140 },
 
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
 
@@ -222,18 +227,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // ✅ centered header + safe top padding
   header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14, alignItems: 'center' },
   title: { fontSize: 26, fontWeight: '800', color: '#fff', textAlign: 'center' },
   subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.75)', textAlign: 'center', marginTop: 6 },
 
-  emptyContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20, paddingTop: 130, paddingBottom: 140 },
+  emptyContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20, paddingBottom: 140 },
   emptyTitle: { fontSize: 20, fontWeight: '900', marginBottom: 8, color: '#fff', textAlign: 'center' },
   emptyText: { fontSize: 16, color: 'rgba(255,255,255,0.85)', textAlign: 'center', marginBottom: 20 },
   syncButton: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#DC0A2D', borderRadius: 10 },
   syncButtonText: { color: '#fff', fontSize: 16, fontWeight: '900' },
 
-  grid: { padding: 16 },
+  grid: {},
   setCard: {
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 12,
