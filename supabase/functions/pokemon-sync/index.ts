@@ -12,12 +12,35 @@ interface SyncRequest {
   fullSync?: boolean;
 }
 
-function envAny(keys: string[]): string {
-  for (const k of keys) {
-    const v = Deno.env.get(k);
-    if (v && v.length > 0) return v;
+function getEnv(name: string): string {
+  return Deno.env.get(name) ?? '';
+}
+
+function getSupabaseUrl(): string {
+  return getEnv('SUPABASE_URL') || getEnv('PROJECT_URL');
+}
+
+function getServiceRoleKey(): string {
+  return getEnv('SUPABASE_SERVICE_ROLE_KEY') || getEnv('SERVICE_ROLE_KEY');
+}
+
+async function isAdminUser(supabaseClient: any, user: any): Promise<boolean> {
+  // Primary: app_metadata.role
+  if (user?.app_metadata?.role === 'admin') return true;
+
+  // Optional fallback: user_roles table (don’t hard-fail if table doesn’t exist)
+  try {
+    const { data, error } = await supabaseClient
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    return !error && data !== null;
+  } catch {
+    return false;
   }
-  return '';
 }
 
 Deno.serve(async (req: Request) => {
@@ -26,14 +49,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = envAny(['SUPABASE_URL', 'PROJECT_URL']);
-    const serviceKey = envAny(['SUPABASE_SERVICE_ROLE_KEY', 'SERVICE_ROLE_KEY']);
+    const supabaseUrl = getSupabaseUrl();
+    const serviceKey = getServiceRoleKey();
 
     if (!supabaseUrl || !serviceKey) {
       return new Response(
         JSON.stringify({
           error:
-            'Missing server env vars. Need SUPABASE_URL (or PROJECT_URL) and SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY).',
+            'Missing Supabase secrets. Set SUPABASE_URL (or PROJECT_URL) and SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY) in your Edge Function secrets.',
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -49,7 +72,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const token = authHeader.replace('Bearer ', '').trim();
+    const token = authHeader.replace('Bearer ', '');
     const {
       data: { user },
       error: authError,
@@ -62,8 +85,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ✅ Admin check: no user_roles table required
-    const isAdmin = user.app_metadata?.role === 'admin';
+    const isAdmin = await isAdminUser(supabaseClient, user);
     if (!isAdmin) {
       return new Response(JSON.stringify({ error: 'Admin access required' }), {
         status: 403,
@@ -74,13 +96,13 @@ Deno.serve(async (req: Request) => {
     const syncLogId = crypto.randomUUID();
     await supabaseClient.from('sync_logs').insert({
       id: syncLogId,
-      job_name: 'pokemon-sync',
+      job_name: 'pokemon_tcg_sync',
       status: 'running',
       details: { started_by: user.id },
     });
 
     const body: SyncRequest = req.method === 'POST' ? await req.json() : {};
-    const pokemonApiKey = envAny(['POKEMONTCG_API_KEY']);
+    const pokemonApiKey = getEnv('POKEMONTCG_API_KEY');
 
     const starterSets = ['base1', 'base2', 'base3', 'base4', 'base5', 'gym1', 'gym2', 'basep'];
     const setsToSync = body.fullSync ? null : body.sets || starterSets;
@@ -98,11 +120,12 @@ Deno.serve(async (req: Request) => {
       const setsResponse = await fetch(setsUrl, { headers });
 
       if (!setsResponse.ok) {
-        const text = await setsResponse.text();
-        throw new Error(`PokemonTCG sets fetch failed (${setsResponse.status}): ${text}`);
+        const text = await setsResponse.text().catch(() => '');
+        throw new Error(`PokemonTCG sets fetch failed (${setsResponse.status}): ${text || 'no body'}`);
       }
 
       const setsData = await setsResponse.json();
+
       if (setsData.data && setsData.data.length > 0) {
         allSets = allSets.concat(setsData.data);
         page++;
@@ -112,7 +135,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const filteredSets = setsToSync ? allSets.filter((s) => setsToSync.includes(s.id)) : allSets;
+    const filteredSets = setsToSync ? allSets.filter((set) => setsToSync.includes(set.id)) : allSets;
 
     const setsToUpsert = filteredSets.map((set) => ({
       id: set.id,
@@ -121,15 +144,15 @@ Deno.serve(async (req: Request) => {
       printed_total: set.printedTotal,
       total: set.total,
       release_date: set.releaseDate,
-      updated_at_api: set.updatedAt, // ✅ now exists in table
+      updated_at_api: set.updatedAt,
       symbol_url: set.images?.symbol,
       logo_url: set.images?.logo,
-      raw: set, // ✅ now exists in table
+      raw: set,
     }));
 
     if (setsToUpsert.length > 0) {
-      const { error: upsertSetsErr } = await supabaseClient.from('tcg_sets').upsert(setsToUpsert);
-      if (upsertSetsErr) throw upsertSetsErr;
+      const { error: upsertSetsError } = await supabaseClient.from('tcg_sets').upsert(setsToUpsert);
+      if (upsertSetsError) throw new Error(`tcg_sets upsert failed: ${upsertSetsError.message}`);
     }
 
     // Fetch cards per set (paged)
@@ -144,8 +167,10 @@ Deno.serve(async (req: Request) => {
         const cardsResponse = await fetch(cardsUrl, { headers });
 
         if (!cardsResponse.ok) {
-          const text = await cardsResponse.text();
-          throw new Error(`PokemonTCG cards fetch failed for ${set.id} (${cardsResponse.status}): ${text}`);
+          const text = await cardsResponse.text().catch(() => '');
+          throw new Error(
+            `PokemonTCG cards fetch failed for set ${set.id} (${cardsResponse.status}): ${text || 'no body'}`
+          );
         }
 
         const cardsData = await cardsResponse.json();
@@ -158,18 +183,17 @@ Deno.serve(async (req: Request) => {
             name: card.name,
             rarity: card.rarity,
             supertype: card.supertype,
-            subtype: card.subtypes?.[0] ?? null, // keeps your existing subtype column working
-            subtypes: card.subtypes || [], // ✅ now exists
-            types: card.types || [], // ✅ now exists
-            national_pokedex_numbers: card.nationalPokedexNumbers || [], // ✅ now exists
+            subtypes: card.subtypes || [],
+            types: card.types || [],
+            national_pokedex_numbers: card.nationalPokedexNumbers || [],
             small_image_url: card.images?.small,
             large_image_url: card.images?.large,
-            api_updated_at: card.updatedAt, // ✅ now exists
-            raw: card, // ✅ now exists
+            api_updated_at: card.updatedAt,
+            raw: card,
           }));
 
-          const { error: upsertCardsErr } = await supabaseClient.from('tcg_cards').upsert(cardsToUpsert);
-          if (upsertCardsErr) throw upsertCardsErr;
+          const { error: upsertCardsError } = await supabaseClient.from('tcg_cards').upsert(cardsToUpsert);
+          if (upsertCardsError) throw new Error(`tcg_cards upsert failed: ${upsertCardsError.message}`);
 
           totalCards += cardsToUpsert.length;
           cardPage++;
@@ -203,26 +227,11 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error: any) {
     console.error('Error in pokemon-sync:', error);
-
-    // Try to mark sync as failed if possible (best effort)
-    try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL') || Deno.env.get('PROJECT_URL') || '';
-      const serviceKey =
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || '';
-      if (supabaseUrl && serviceKey) {
-        const supabaseClient = createClient(supabaseUrl, serviceKey);
-        await supabaseClient.from('sync_logs').insert({
-          job_name: 'pokemon-sync',
-          status: 'failed',
-          finished_at: new Date().toISOString(),
-          error_message: error?.message || 'Unknown error',
-        });
-      }
-    } catch {}
-
-    return new Response(JSON.stringify({ error: error?.message || 'Internal server error' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        error: error?.message || 'Internal server error',
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 });
