@@ -1,5 +1,5 @@
 // app/(app)/admin/index.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -45,6 +45,16 @@ export default function AdminScreen() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Show any errors reliably on Web + Mobile
+  const showMsg = (title: string, message: string) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      // eslint-disable-next-line no-alert
+      window.alert(`${title}\n\n${message}`);
+      return;
+    }
+    Alert.alert(title, message);
+  };
+
   function setTab(tab: 'sync' | 'users' | 'pricing') {
     router.replace({
       pathname: '/(app)/admin',
@@ -71,8 +81,9 @@ export default function AdminScreen() {
     try {
       const latestLogs = await getLatestSyncLogs(10);
       setLogs(latestLogs);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading logs:', error);
+      // Avoid spamming alerts; just log. UI already handles "No logs".
     } finally {
       setLoading(false);
     }
@@ -85,36 +96,59 @@ export default function AdminScreen() {
         body: { action: 'list' },
       });
 
-      if (error) throw error;
-      setUsers(data.users || []);
+      if (error) {
+        throw new Error(
+          (error as any)?.message || (error as any)?.context || JSON.stringify(error)
+        );
+      }
+
+      setUsers((data as any)?.users || []);
     } catch (error: any) {
       console.error('Error loading users:', error);
-      Alert.alert('Error', error.message || 'Failed to load users');
+      showMsg('Error', error?.message || 'Failed to load users');
     } finally {
       setUsersLoading(false);
     }
   }
 
   async function handleSync(fullSync = false) {
+    if (syncing) return;
+
     setSyncing(true);
 
     try {
+      console.log('[SYNC] Starting pokemon-sync...', { fullSync });
+
+      const startedAt = Date.now();
+
       const { data, error } = await supabase.functions.invoke('pokemon-sync', {
         body: { fullSync },
       });
 
-      if (error) throw error;
+      console.log('[SYNC] Response', { data, error, ms: Date.now() - startedAt });
 
-      Alert.alert(
-        'Sync Complete',
-        `Synced ${data?.sets_synced || 0} sets and ${data?.cards_synced || 0} cards`
-      );
+      if (error) {
+        throw new Error(
+          (error as any)?.message || (error as any)?.context || JSON.stringify(error)
+        );
+      }
+
+      const setsSynced = (data as any)?.sets_synced ?? 0;
+      const cardsSynced = (data as any)?.cards_synced ?? 0;
+
+      showMsg('Sync Complete', `Synced ${setsSynced} sets and ${cardsSynced} cards`);
 
       await loadLogs();
+
+      // Bring user back to sets after a successful sync
       router.push('/(app)/sets');
     } catch (error: any) {
       console.error('Sync error:', error);
-      Alert.alert('Sync Failed', error.message || 'An error occurred');
+      showMsg(
+        'Sync Failed',
+        error?.message ||
+          'An error occurred. Check Supabase → Edge Functions logs for pokemon-sync.'
+      );
     } finally {
       setSyncing(false);
     }
@@ -130,13 +164,17 @@ export default function AdminScreen() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(
+          (error as any)?.message || (error as any)?.context || JSON.stringify(error)
+        );
+      }
 
-      Alert.alert('Success', `User role updated to ${role}`);
+      showMsg('Success', `User role updated to ${role}`);
       await loadUsers();
     } catch (error: any) {
       console.error('Error setting role:', error);
-      Alert.alert('Error', error.message || 'Failed to update user role');
+      showMsg('Error', error?.message || 'Failed to update user role');
     }
   }
 
@@ -144,9 +182,11 @@ export default function AdminScreen() {
     return <Redirect href="/(app)/sets" />;
   }
 
-  const filteredUsers = users.filter((user) =>
-    (user.email || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) =>
+      (user.email || '').toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [users, searchQuery]);
 
   return (
     <View style={styles.root}>
@@ -163,6 +203,7 @@ export default function AdminScreen() {
             <TouchableOpacity
               style={[styles.tabButton, activeTab === 'sync' && styles.tabButtonActive]}
               onPress={() => setTab('sync')}
+              activeOpacity={0.85}
             >
               <DatabaseIcon size={16} color={activeTab === 'sync' ? '#0b0b0b' : '#fff'} />
               <Text style={[styles.tabText, activeTab === 'sync' && styles.tabTextActive]}>Sync</Text>
@@ -171,14 +212,18 @@ export default function AdminScreen() {
             <TouchableOpacity
               style={[styles.tabButton, activeTab === 'users' && styles.tabButtonActive]}
               onPress={() => setTab('users')}
+              activeOpacity={0.85}
             >
               <Users size={16} color={activeTab === 'users' ? '#0b0b0b' : '#fff'} />
-              <Text style={[styles.tabText, activeTab === 'users' && styles.tabTextActive]}>Users</Text>
+              <Text style={[styles.tabText, activeTab === 'users' && styles.tabTextActive]}>
+                Users
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.tabButton, activeTab === 'pricing' && styles.tabButtonActive]}
               onPress={() => setTab('pricing')}
+              activeOpacity={0.85}
             >
               <Text style={[styles.tabText, activeTab === 'pricing' && styles.tabTextActive]}>
                 Pricing
@@ -193,7 +238,9 @@ export default function AdminScreen() {
                   <View style={styles.cardIconCentered}>
                     <DatabaseIcon size={32} color="#DC0A2D" />
                   </View>
+
                   <Text style={[styles.cardTitle, styles.centerText]}>Pokémon TCG Sync</Text>
+
                   <Text style={[styles.cardDescription, styles.centerText]}>
                     You must run Sync Starter Sets once to populate the database.
                   </Text>
@@ -203,6 +250,7 @@ export default function AdminScreen() {
                       style={[styles.button, syncing && styles.buttonDisabled]}
                       onPress={() => handleSync(false)}
                       disabled={syncing}
+                      activeOpacity={0.85}
                     >
                       {syncing ? (
                         <ActivityIndicator color="#fff" />
@@ -215,9 +263,14 @@ export default function AdminScreen() {
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={[styles.button, styles.buttonSecondary, syncing && styles.buttonDisabled]}
+                      style={[
+                        styles.button,
+                        styles.buttonSecondary,
+                        syncing && styles.buttonDisabled,
+                      ]}
                       onPress={() => handleSync(true)}
                       disabled={syncing}
+                      activeOpacity={0.85}
                     >
                       {syncing ? (
                         <ActivityIndicator color="#DC0A2D" />
@@ -231,37 +284,65 @@ export default function AdminScreen() {
                       )}
                     </TouchableOpacity>
                   </View>
+
+                  {Platform.OS === 'web' && (
+                    <Text style={styles.webHint}>
+                      If nothing happens, open DevTools Console and look for “[SYNC] …” logs. The page
+                      will also show an alert on error.
+                    </Text>
+                  )}
                 </View>
 
                 <View style={styles.card}>
                   <Text style={[styles.cardTitle, styles.centerText]}>Recent Sync Logs</Text>
+
                   {loading ? (
                     <ActivityIndicator color="#DC0A2D" style={styles.logsLoader} />
                   ) : logs.length === 0 ? (
                     <Text style={[styles.emptyText, styles.centerText]}>No sync logs yet</Text>
                   ) : (
-                    logs.map((log) => (
-                      <View key={log.id} style={styles.logItem}>
-                        <View style={styles.logHeader}>
-                          <Text style={styles.logJob}>{log.job_name}</Text>
-                          <View
-                            style={[
-                              styles.statusBadge,
-                              log.status === 'success' && styles.statusSuccess,
-                              log.status === 'failed' && styles.statusFailed,
-                              log.status === 'running' && styles.statusRunning,
-                            ]}
-                          >
-                            <Text style={styles.statusText}>{log.status}</Text>
+                    logs.map((log) => {
+                      const status = (log as any).status as string;
+                      const jobName = (log as any).job_name as string;
+                      const startedAt = (log as any).started_at as string;
+                      const details = (log as any).details;
+
+                      return (
+                        <View key={(log as any).id} style={styles.logItem}>
+                          <View style={styles.logHeader}>
+                            <Text style={styles.logJob}>{jobName}</Text>
+                            <View
+                              style={[
+                                styles.statusBadge,
+                                status === 'success' && styles.statusSuccess,
+                                status === 'failed' && styles.statusFailed,
+                                status === 'running' && styles.statusRunning,
+                              ]}
+                            >
+                              <Text style={styles.statusText}>{status}</Text>
+                            </View>
                           </View>
+
+                          <Text style={styles.logDate}>
+                            {startedAt ? new Date(startedAt).toLocaleString() : ''}
+                          </Text>
+
+                          {details && (
+                            <Text style={styles.logDetails}>{JSON.stringify(details, null, 2)}</Text>
+                          )}
                         </View>
-                        <Text style={styles.logDate}>{new Date(log.started_at).toLocaleString()}</Text>
-                        {log.details && (
-                          <Text style={styles.logDetails}>{JSON.stringify(log.details, null, 2)}</Text>
-                        )}
-                      </View>
-                    ))
+                      );
+                    })
                   )}
+
+                  <TouchableOpacity
+                    style={[styles.refreshLogsBtn, loading && styles.buttonDisabled]}
+                    onPress={loadLogs}
+                    disabled={loading}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.refreshLogsText}>{loading ? 'Loading…' : 'Refresh Logs'}</Text>
+                  </TouchableOpacity>
                 </View>
               </>
             )}
@@ -272,7 +353,9 @@ export default function AdminScreen() {
                 <Text style={styles.cardDescription}>
                   Manage average card prices for collection value analytics
                 </Text>
-                <Text style={styles.comingSoonText}>Coming soon: Search cards and add pricing data</Text>
+                <Text style={styles.comingSoonText}>
+                  Coming soon: Search cards and add pricing data
+                </Text>
               </View>
             )}
 
@@ -305,6 +388,7 @@ export default function AdminScreen() {
                         <View style={styles.userInfo}>
                           <View style={styles.userEmailRow}>
                             <Text style={styles.userEmail}>{user.email}</Text>
+
                             {isUserAdmin && (
                               <View style={styles.adminBadge}>
                                 <Text style={styles.adminBadgeText}>ADMIN</Text>
@@ -328,6 +412,7 @@ export default function AdminScreen() {
                             <TouchableOpacity
                               style={[styles.actionButton, styles.demoteButton]}
                               onPress={() => handleSetRole(user.id, 'user')}
+                              activeOpacity={0.85}
                             >
                               <Text style={styles.actionButtonText}>Demote</Text>
                             </TouchableOpacity>
@@ -335,6 +420,7 @@ export default function AdminScreen() {
                             <TouchableOpacity
                               style={[styles.actionButton, styles.promoteButton]}
                               onPress={() => handleSetRole(user.id, 'admin')}
+                              activeOpacity={0.85}
                             >
                               <Text style={styles.actionButtonText}>Promote</Text>
                             </TouchableOpacity>
@@ -344,6 +430,17 @@ export default function AdminScreen() {
                     );
                   })
                 )}
+
+                <TouchableOpacity
+                  style={[styles.refreshLogsBtn, usersLoading && styles.buttonDisabled]}
+                  onPress={loadUsers}
+                  disabled={usersLoading}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.refreshLogsText}>
+                    {usersLoading ? 'Loading…' : 'Refresh Users'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             )}
           </ScrollView>
@@ -360,7 +457,7 @@ const styles = StyleSheet.create({
 
   container: { flex: 1, backgroundColor: 'transparent' },
 
-  // ✅ pushes content below your top app header (email/logout) so titles never get cut off
+  // pushes content below your top app header (email/logout)
   header: {
     padding: 20,
     paddingTop: 78,
@@ -459,14 +556,36 @@ const styles = StyleSheet.create({
   buttonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
   buttonTextSecondary: { color: '#DC0A2D' },
 
+  webHint: {
+    marginTop: 12,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.65)',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
   logsLoader: { marginVertical: 20 },
   emptyText: { fontSize: 14, color: 'rgba(255,255,255,0.65)', fontStyle: 'italic' },
 
-  logItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
-  logHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  logItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  logHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   logJob: { fontSize: 14, fontWeight: '600', color: '#fff' },
 
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
   statusSuccess: { backgroundColor: 'rgba(76, 175, 80, 0.3)' },
   statusFailed: { backgroundColor: 'rgba(244, 67, 54, 0.3)' },
   statusRunning: { backgroundColor: 'rgba(255, 152, 0, 0.3)' },
@@ -478,6 +597,23 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     marginTop: 8,
+  },
+
+  refreshLogsBtn: {
+    marginTop: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  refreshLogsText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+    letterSpacing: 0.2,
   },
 
   comingSoonText: { fontSize: 14, color: '#ff9500', fontStyle: 'italic' },
