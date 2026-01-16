@@ -93,7 +93,7 @@ export default function SetsScreen() {
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
           >
             <View style={styles.header}>
-              <Text style={styles.title}>Pokémon TCG Sets</Text>
+              <Text style={styles.title}>Pokémon Sets</Text>
               <Text style={styles.subtitle}>Browse your collection by set</Text>
             </View>
 
