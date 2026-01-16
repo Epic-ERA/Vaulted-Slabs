@@ -1,5 +1,5 @@
 // app/(app)/admin/index.tsx
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -31,6 +31,33 @@ interface UserData {
   app_metadata: any;
 }
 
+type SyncMode = 'starter' | 'full' | null;
+
+function extractInvokeErrorMessage(err: any): string {
+  // Supabase Functions errors often include useful info in error.context.body
+  const body = err?.context?.body;
+
+  if (typeof body === 'string' && body.trim().length) return body;
+  if (typeof body === 'object' && body) {
+    // common shapes: { error: '...' } or { message: '...' }
+    if (typeof body.error === 'string' && body.error.trim().length) return body.error;
+    if (typeof body.message === 'string' && body.message.trim().length) return body.message;
+    try {
+      return JSON.stringify(body);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (typeof err?.message === 'string' && err.message.trim().length) return err.message;
+
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'Unknown error';
+  }
+}
+
 export default function AdminScreen() {
   const { isAdmin } = useAuth();
   const params = useLocalSearchParams();
@@ -38,12 +65,17 @@ export default function AdminScreen() {
   const activeTab = (params.tab as string) || 'sync';
 
   const [syncing, setSyncing] = useState(false);
+  const [syncMode, setSyncMode] = useState<SyncMode>(null);
+
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [users, setUsers] = useState<UserData[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Prevent double-taps / accidental multi-fire on web + mobile
+  const syncLockRef = useRef(false);
 
   // Show any errors reliably on Web + Mobile
   const showMsg = (title: string, message: string) => {
@@ -97,9 +129,7 @@ export default function AdminScreen() {
       });
 
       if (error) {
-        throw new Error(
-          (error as any)?.message || (error as any)?.context || JSON.stringify(error)
-        );
+        throw new Error(extractInvokeErrorMessage(error));
       }
 
       setUsers((data as any)?.users || []);
@@ -112,9 +142,13 @@ export default function AdminScreen() {
   }
 
   async function handleSync(fullSync = false) {
+    // hard lock to stop double-trigger issues (web click bubbling / double taps)
+    if (syncLockRef.current) return;
     if (syncing) return;
 
+    syncLockRef.current = true;
     setSyncing(true);
+    setSyncMode(fullSync ? 'full' : 'starter');
 
     try {
       console.log('[SYNC] Starting pokemon-sync...', { fullSync });
@@ -128,9 +162,8 @@ export default function AdminScreen() {
       console.log('[SYNC] Response', { data, error, ms: Date.now() - startedAt });
 
       if (error) {
-        throw new Error(
-          (error as any)?.message || (error as any)?.context || JSON.stringify(error)
-        );
+        // This will now surface the real error body instead of the generic non-2xx
+        throw new Error(extractInvokeErrorMessage(error));
       }
 
       const setsSynced = (data as any)?.sets_synced ?? 0;
@@ -151,6 +184,11 @@ export default function AdminScreen() {
       );
     } finally {
       setSyncing(false);
+      setSyncMode(null);
+      // release lock slightly after state update to avoid rapid re-taps
+      setTimeout(() => {
+        syncLockRef.current = false;
+      }, 250);
     }
   }
 
@@ -165,9 +203,7 @@ export default function AdminScreen() {
       });
 
       if (error) {
-        throw new Error(
-          (error as any)?.message || (error as any)?.context || JSON.stringify(error)
-        );
+        throw new Error(extractInvokeErrorMessage(error));
       }
 
       showMsg('Success', `User role updated to ${role}`);
@@ -206,7 +242,9 @@ export default function AdminScreen() {
               activeOpacity={0.85}
             >
               <DatabaseIcon size={16} color={activeTab === 'sync' ? '#0b0b0b' : '#fff'} />
-              <Text style={[styles.tabText, activeTab === 'sync' && styles.tabTextActive]}>Sync</Text>
+              <Text style={[styles.tabText, activeTab === 'sync' && styles.tabTextActive]}>
+                Sync
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -252,7 +290,7 @@ export default function AdminScreen() {
                       disabled={syncing}
                       activeOpacity={0.85}
                     >
-                      {syncing ? (
+                      {syncing && syncMode === 'starter' ? (
                         <ActivityIndicator color="#fff" />
                       ) : (
                         <>
@@ -272,7 +310,7 @@ export default function AdminScreen() {
                       disabled={syncing}
                       activeOpacity={0.85}
                     >
-                      {syncing ? (
+                      {syncing && syncMode === 'full' ? (
                         <ActivityIndicator color="#DC0A2D" />
                       ) : (
                         <>
