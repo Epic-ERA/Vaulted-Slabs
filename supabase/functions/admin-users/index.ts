@@ -8,12 +8,33 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
-function envAny(keys: string[]): string {
-  for (const k of keys) {
-    const v = Deno.env.get(k);
-    if (v && v.length > 0) return v;
+function getEnv(name: string): string {
+  return Deno.env.get(name) ?? '';
+}
+
+function getSupabaseUrl(): string {
+  return getEnv('SUPABASE_URL') || getEnv('PROJECT_URL');
+}
+
+function getServiceRoleKey(): string {
+  return getEnv('SUPABASE_SERVICE_ROLE_KEY') || getEnv('SERVICE_ROLE_KEY');
+}
+
+async function isAdminUser(supabaseClient: any, user: any): Promise<boolean> {
+  if (user?.app_metadata?.role === 'admin') return true;
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    return !error && data !== null;
+  } catch {
+    return false;
   }
-  return '';
 }
 
 Deno.serve(async (req: Request) => {
@@ -23,21 +44,16 @@ Deno.serve(async (req: Request) => {
 
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (!authHeader) throw new Error('Missing authorization header');
 
-    const supabaseUrl = envAny(['SUPABASE_URL', 'PROJECT_URL']);
-    const serviceKey = envAny(['SUPABASE_SERVICE_ROLE_KEY', 'SERVICE_ROLE_KEY']);
+    const supabaseUrl = getSupabaseUrl();
+    const serviceKey = getServiceRoleKey();
 
     if (!supabaseUrl || !serviceKey) {
       return new Response(
         JSON.stringify({
           error:
-            'Missing server env vars. Need SUPABASE_URL (or PROJECT_URL) and SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY).',
+            'Missing Supabase secrets. Set SUPABASE_URL (or PROJECT_URL) and SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY) in your Edge Function secrets.',
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -45,87 +61,73 @@ Deno.serve(async (req: Request) => {
 
     const supabaseClient = createClient(supabaseUrl, serviceKey);
 
-    const token = authHeader.replace('Bearer ', '').trim();
-    const { data: userRes, error: userError } = await supabaseClient.auth.getUser(token);
+    const token = authHeader.replace('Bearer ', '');
+    const {
+      data: { user },
+      error: userError,
+    } = await supabaseClient.auth.getUser(token);
 
-    const user = userRes?.user;
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (userError || !user) throw new Error('Unauthorized');
 
-    // ✅ Admin check: app_metadata only (no DB dependency)
-    const isAdmin = user.app_metadata?.role === 'admin';
-    if (!isAdmin) {
-      return new Response(JSON.stringify({ error: 'Forbidden: Admin access required' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    const isAdmin = await isAdminUser(supabaseClient, user);
+    if (!isAdmin) throw new Error('Forbidden: Admin access required');
 
     const { action, userId, role } = await req.json();
 
     if (action === 'list') {
-      const { data, error } = await supabaseClient.auth.admin.listUsers();
-      if (error) throw error;
+      const { data, error: listError } = await supabaseClient.auth.admin.listUsers();
+      if (listError) throw listError;
 
-      const users = (data?.users || []).map((u) => ({
+      // Optional roles table mapping (if it exists)
+      let roleMap = new Map<string, string>();
+      try {
+        const { data: userRoles } = await supabaseClient.from('user_roles').select('user_id, role');
+        roleMap = new Map(userRoles?.map((r: any) => [r.user_id, r.role]) || []);
+      } catch {
+        // ignore if user_roles doesn't exist
+      }
+
+      const usersData = (data?.users || []).map((u: any) => ({
         id: u.id,
         email: u.email || '',
         created_at: u.created_at,
         last_sign_in_at: u.last_sign_in_at,
-        app_metadata: { role: u.app_metadata?.role || 'user' },
+        app_metadata: { ...(u.app_metadata || {}), role: roleMap.get(u.id) || u.app_metadata?.role || 'user' },
       }));
 
-      return new Response(JSON.stringify({ users }), {
-        status: 200,
+      return new Response(JSON.stringify({ users: usersData }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     if (action === 'setRole') {
-      if (!userId || !role) {
-        return new Response(JSON.stringify({ error: 'Missing userId or role' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+      if (!userId || !role) throw new Error('Missing userId or role');
+      if (role !== 'admin' && role !== 'user') throw new Error('Invalid role. Must be "admin" or "user"');
 
-      if (role !== 'admin' && role !== 'user') {
-        return new Response(JSON.stringify({ error: 'Invalid role. Must be "admin" or "user"' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      // ✅ Primary source of truth: auth app_metadata.role
-      const { error: updateError } = await supabaseClient.auth.admin.updateUserById(userId, {
+      // Always update app_metadata so your auth-based admin check works
+      const { error: metaError } = await supabaseClient.auth.admin.updateUserById(userId, {
         app_metadata: { role },
       });
+      if (metaError) throw metaError;
 
-      if (updateError) throw updateError;
-
-      // Optional: if you later add user_roles table, keep it in sync (best effort, no hard dependency)
+      // Also try to persist in user_roles if present (no hard fail)
       try {
         await supabaseClient.from('user_roles').upsert({ user_id: userId, role }, { onConflict: 'user_id' });
-      } catch {}
+      } catch {
+        // ignore
+      }
 
-      return new Response(JSON.stringify({ success: true, message: `User role updated to ${role}` }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({ success: true, message: `User role updated to ${role}` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    return new Response(JSON.stringify({ error: 'Invalid action' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    throw new Error('Invalid action');
   } catch (error: any) {
     console.error('Error in admin-users:', error);
-    return new Response(JSON.stringify({ error: error?.message || 'Internal server error' }), {
-      status: 500,
+    return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
+      status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
