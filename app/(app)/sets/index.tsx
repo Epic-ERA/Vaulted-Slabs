@@ -75,12 +75,8 @@ export default function SetsScreen() {
         <ImageBackground source={BACKGROUND_IMAGE} style={styles.bg} resizeMode="cover">
           <View style={styles.bgOverlay} />
 
-          <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.emptyContainer}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
-          >
-            {isAdmin && (
+          {isAdmin && (
+            <View style={styles.topButtonContainer}>
               <TouchableOpacity
                 style={styles.adminButton}
                 onPress={() => router.push('/(app)/admin')}
@@ -88,8 +84,14 @@ export default function SetsScreen() {
               >
                 <Text style={styles.adminButtonText}>Admin Dashboard</Text>
               </TouchableOpacity>
-            )}
+            </View>
+          )}
 
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.emptyContainer}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
+          >
             <View style={styles.header}>
               <Text style={styles.title}>Pokémon TCG Sets</Text>
               <Text style={styles.subtitle}>Browse your collection by set</Text>
@@ -118,12 +120,8 @@ export default function SetsScreen() {
       <ImageBackground source={BACKGROUND_IMAGE} style={styles.bg} resizeMode="cover">
         <View style={styles.bgOverlay} />
 
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={styles.contentContainer}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
-        >
-          {isAdmin && (
+        {isAdmin && (
+          <View style={styles.topButtonContainer}>
             <TouchableOpacity
               style={styles.adminButton}
               onPress={() => router.push('/(app)/admin')}
@@ -131,8 +129,14 @@ export default function SetsScreen() {
             >
               <Text style={styles.adminButtonText}>Admin Dashboard</Text>
             </TouchableOpacity>
-          )}
+          </View>
+        )}
 
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.contentContainer}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC0A2D" />}
+        >
           <View style={styles.header}>
             <Text style={styles.title}>Pokémon TCG Sets</Text>
             <Text style={styles.subtitle}>Browse your collection by set</Text>
@@ -191,10 +195,18 @@ const styles = StyleSheet.create({
   bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
 
   container: { flex: 1, backgroundColor: 'transparent' },
-  contentContainer: { paddingBottom: 140 },
+  contentContainer: { paddingTop: 130, paddingBottom: 140 },
 
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
 
+  topButtonContainer: {
+    position: 'absolute',
+    top: 74,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    paddingHorizontal: 20,
+  },
   adminButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -202,9 +214,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    marginHorizontal: 20,
-    marginTop: 78,
-    marginBottom: 12,
   },
   adminButtonText: {
     color: '#fff',
@@ -218,7 +227,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: '800', color: '#fff', textAlign: 'center' },
   subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.75)', textAlign: 'center', marginTop: 6 },
 
-  emptyContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20, paddingBottom: 140 },
+  emptyContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20, paddingTop: 130, paddingBottom: 140 },
   emptyTitle: { fontSize: 20, fontWeight: '900', marginBottom: 8, color: '#fff', textAlign: 'center' },
   emptyText: { fontSize: 16, color: 'rgba(255,255,255,0.85)', textAlign: 'center', marginBottom: 20 },
   syncButton: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#DC0A2D', borderRadius: 10 },
